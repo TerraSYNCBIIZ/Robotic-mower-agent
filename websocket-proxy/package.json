@@ -1,0 +1,19 @@
+{
+  "name": "husqvarna-websocket-proxy",
+  "version": "1.0.0",
+  "description": "WebSocket proxy for Husqvarna API connections",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "axios": "^1.8.4",
+    "dotenv": "^16.4.1",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}
