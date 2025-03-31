@@ -1,0 +1,520 @@
+@import "../styles/calendar-styles.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+ 
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+ 
+    --primary: 142.1 76.2% 36.3%;
+    --primary-foreground: 355.7 100% 97.3%;
+ 
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+ 
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+ 
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+ 
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 142.1 76.2% 36.3%;
+ 
+    --radius: 0.5rem;
+  }
+ 
+  .dark {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+ 
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+ 
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+ 
+    --primary: 142.1 70.6% 45.3%;
+    --primary-foreground: 0 0% 100%;
+ 
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+ 
+    --muted: 0 0% 15%;
+    --muted-foreground: 240 5% 64.9%;
+ 
+    --accent: 12 6.5% 15.1%;
+    --accent-foreground: 0 0% 98%;
+ 
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+ 
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 142.4 71.8% 29.2%;
+  }
+}
+ 
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+/* Calendar container specific styles */
+.calendar-container {
+  overflow: hidden;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.dark .calendar-container {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+/* Ensure the calendar always has a good minimum height */
+.calendar-container .fc {
+  min-height: 500px;
+}
+
+/* Calendar wrapper with direct styling to ensure grid lines are visible */
+.calendar-wrapper {
+  --grid-color: rgba(0, 0, 0, 0.2);
+  --dark-grid-color: rgba(255, 255, 255, 0.15);
+  --cell-bg-even: rgba(0, 0, 0, 0.03);
+  --cell-bg-odd: transparent;
+  --header-bg: #f8fafc;
+  --dark-header-bg: #1e1e1e;
+}
+
+/* Force grid lines to be visible */
+.calendar-wrapper .fc-theme-standard td,
+.calendar-wrapper .fc-theme-standard th {
+  border: 1px solid var(--grid-color) !important;
+}
+
+/* Add zebra striping for hours */
+.calendar-wrapper .fc-timegrid-slot:nth-child(odd) {
+  background-color: rgba(0, 0, 0, 0.01) !important;
+}
+
+.calendar-wrapper .fc-timegrid-slot:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+
+/* Time axis (left column) */
+.calendar-wrapper .fc-timegrid-axis-frame,
+.calendar-wrapper .fc-timegrid-slots td:first-child,
+.calendar-wrapper .fc-col-header thead tr th:first-child {
+  background-color: var(--header-bg) !important;
+  border-right: 2px solid var(--grid-color) !important;
+  box-shadow: inset -2px 0 5px -2px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Custom day cells */
+.calendar-wrapper .day-cell-custom {
+  border-right: 2px solid var(--grid-color) !important;
+}
+
+/* Alternating day columns */
+.calendar-wrapper .fc-timegrid-col:nth-child(even) {
+  background-color: var(--cell-bg-even) !important;
+}
+
+.calendar-wrapper .fc-timegrid-col:nth-child(odd) {
+  background-color: var(--cell-bg-odd) !important;
+}
+
+/* Day column headers */
+.calendar-wrapper .fc-col-header-cell {
+  background-color: var(--header-bg) !important;
+  border-bottom: 2px solid var(--grid-color) !important;
+  border-right: 2px solid var(--grid-color) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+
+.calendar-wrapper .fc-col-header-cell-cushion {
+  font-weight: 700 !important;
+  padding: 8px !important;
+  color: #333 !important;
+}
+
+/* Hour marker lines */
+.calendar-wrapper .fc-timegrid-slot[data-time$=":00:00"] {
+  border-top: 2px solid var(--grid-color) !important;
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Custom time labels */
+.calendar-wrapper .time-label-custom {
+  font-weight: 600 !important;
+  color: #555 !important;
+}
+
+/* Custom event styling */
+.calendar-wrapper .restriction-block {
+  margin: 2px 3px !important;
+}
+
+/* Custom restriction block styling */
+.calendar-wrapper .custom-restriction-block {
+  border: 1px solid hsla(var(--destructive-hsl), 0.4) !important;
+  background-color: hsla(var(--destructive-hsl), 0.6) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+  opacity: 0.75 !important;
+  transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out !important;
+}
+
+/* Reset button styling for the calendar blocks */
+.calendar-wrapper button.restriction-block {
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer !important;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  outline: none !important;
+}
+
+/* Add some visual feedback when clicking */
+.calendar-wrapper button.restriction-block:active,
+.calendar-wrapper button.restriction-block.removing {
+  transform: scale(0.97) !important;
+  opacity: 0.7 !important;
+  outline: none !important;
+}
+
+/* Make the X button more prominent on hover */
+.calendar-wrapper .restriction-block:hover .group span:last-child {
+  opacity: 1 !important;
+  background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* Custom restriction block hover */
+.calendar-wrapper .custom-restriction-block:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.15) !important;
+  opacity: 0.9 !important;
+  cursor: pointer !important;
+}
+
+/* Dark mode overrides */
+.dark .calendar-wrapper {
+  --grid-color: var(--dark-grid-color);
+  --cell-bg-even: rgba(255, 255, 255, 0.03);
+  --header-bg: var(--dark-header-bg);
+}
+
+/* Dark mode zebra striping */
+.dark .calendar-wrapper .fc-timegrid-slot:nth-child(odd) {
+  background-color: rgba(255, 255, 255, 0.01) !important;
+}
+
+.dark .calendar-wrapper .fc-timegrid-slot:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+.dark .calendar-wrapper .fc-col-header-cell {
+  background-color: rgba(30, 30, 30, 0.8) !important;
+}
+
+.dark .calendar-wrapper .fc-col-header-cell-cushion {
+  color: #eee !important;
+}
+
+.dark .calendar-wrapper .time-label-custom {
+  color: #bbb !important;
+}
+
+/* Dark mode time axis */
+.dark .calendar-wrapper .fc-timegrid-axis-frame,
+.dark .calendar-wrapper .fc-timegrid-slots td:first-child,
+.dark .calendar-wrapper .fc-col-header thead tr th:first-child {
+  background-color: rgba(40, 40, 40, 0.8) !important;
+  border-right: 3px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: inset -2px 0 5px -2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Make the time axis column more visible in dark mode */
+.dark .fc .fc-timegrid-axis-frame,
+.dark .fc .fc-timegrid-slots td:first-child,
+.dark .fc .fc-col-header thead tr th:first-child {
+  background-color: hsla(var(--muted-foreground-hsl), 0.2);
+  border-right: 3px solid hsla(var(--border-hsl), 1);
+}
+
+/* Enhance visibility of time slots in dark mode */
+.dark .fc .fc-timegrid-slot-label-cushion {
+  font-weight: 700;
+  color: hsla(var(--foreground-hsl), 0.8);
+}
+
+/* Better calendar scrolling on mobile */
+@media (max-width: 768px) {
+  .calendar-container .fc-scroller {
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+  
+  .calendar-container .fc {
+    min-height: 400px;
+  }
+}
+
+/* === Custom Time Grid Styles === */
+.time-grid-container {
+  width: 100%;
+  padding: 0.5rem;
+  background: var(--background);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.25rem;
+}
+
+.time-grid {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.825rem;
+}
+
+/* Header row */
+.time-grid-header {
+  display: table-row;
+  background-color: rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+}
+
+.time-grid-day-header {
+  display: table-cell;
+  padding: 0.5rem;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom-width: 2px;
+  min-width: 4rem;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Hour label column */
+.time-grid-hour-label {
+  display: table-cell;
+  padding: 0.5rem;
+  text-align: right;
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-right-width: 2px;
+  min-width: 5rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Grid rows */
+.time-grid-row {
+  display: table-row;
+}
+
+.time-grid-row:nth-child(even) {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Even hours */
+.even-hour {
+  background-color: rgba(255, 255, 255, 0.01);
+}
+
+/* Grid cells */
+.time-grid-cell {
+  display: table-cell;
+  height: 2.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  /* Reset button styling */
+  background: none;
+  font: inherit;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+  width: 100%;
+  outline: none;
+}
+
+.time-grid-cell:hover {
+  background-color: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Restricted cell styling */
+.time-grid-cell.restricted {
+  background-color: rgba(220, 38, 38, 0.2);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+}
+
+/* Restriction indicator */
+.restriction-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(220, 38, 38, 0.75);
+  color: white;
+  font-size: 0.7rem;
+  gap: 0.25rem;
+  transition: all 0.2s;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.restriction-indicator:hover {
+  background-color: rgba(220, 38, 38, 0.9);
+}
+
+/* Icons in restriction indicator */
+.restriction-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  opacity: 0.9;
+}
+
+.remove-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  opacity: 0.8;
+  margin-left: 0.25rem;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  padding: 1px;
+}
+
+.restriction-indicator:hover .remove-icon {
+  opacity: 1;
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.restriction-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+/* Dark mode support */
+.dark .time-grid-cell.restricted {
+  background-color: hsl(var(--destructive) / 0.25);
+}
+
+.dark .time-grid-cell:hover {
+  background-color: hsl(var(--accent) / 0.15);
+}
+
+.dark .restriction-indicator {
+  background-color: hsl(var(--destructive) / 0.8);
+}
+
+.dark .restriction-indicator:hover {
+  background-color: hsl(var(--destructive) / 0.95);
+}
+
+/* Make the time axis column more visible in dark mode */
+.dark .fc .fc-timegrid-axis-frame,
+.dark .fc .fc-timegrid-slots td:first-child,
+.dark .fc .fc-col-header thead tr th:first-child {
+  background-color: hsla(var(--muted-foreground-hsl), 0.2);
+  border-right: 3px solid hsla(var(--border-hsl), 1);
+}
+
+/* Enhance visibility of time slots in dark mode */
+.dark .fc .fc-timegrid-slot-label-cushion {
+  font-weight: 700;
+  color: hsla(var(--foreground-hsl), 0.8);
+}
+
+/* Better scrolling on mobile */
+@media (max-width: 768px) {
+  .time-grid-container {
+    overflow-x: auto;
+  }
+  
+  .time-grid-hour-label {
+    position: sticky;
+    left: 0;
+    z-index: 2;
+  }
+}
+
+/* Add dark emphasis for time grid */
+.dark .time-grid-container {
+  background-color: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5); 
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark .time-grid-cell {
+  background-color: rgba(20, 20, 20, 0.5);
+}
+
+.dark .time-grid-cell:hover {
+  background-color: rgba(40, 40, 40, 0.8);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.dark .time-grid-cell.restricted {
+  background-color: rgba(220, 38, 38, 0.2);
+}
+
+.dark .time-grid-header {
+  background-color: rgba(30, 30, 30, 0.8);
+}
+
+.dark .time-grid-hour-label {
+  background-color: rgba(30, 30, 30, 0.8);
+}
+
+/* Bot Avatar Animation */
+@keyframes ripple {
+  0% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(0.8);
+    opacity: 1;
+  }
+}
+
+.animate-ripple {
+  animation: ripple 2s ease-in-out infinite;
+}
+
+/* Soften the animation for dark mode */
+.dark .animate-ripple {
+  animation: ripple 2.5s ease-in-out infinite;
+  opacity: 0.9;
+} 
