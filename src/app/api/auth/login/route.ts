@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
     // Store the redirect path in the session or cookies so we can use it after callback
     // For this example, we'll append it to the state parameter
     const stateWithRedirect = encodeURIComponent(redirect);
+    // Fix the URL construction to avoid extra spaces
     const finalAuthUrl = `${authUrl}&state=${stateWithRedirect}`;
     
     console.log(`Redirecting to Husqvarna auth: ${finalAuthUrl}`);

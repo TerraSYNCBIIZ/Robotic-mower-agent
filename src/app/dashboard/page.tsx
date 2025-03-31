@@ -9,17 +9,17 @@ import WeatherWidget from '@/components/dashboard/WeatherWidget';
 import { MowerStatusDisplay } from '@/components/dashboard/MowerStatusDisplay';
 import { MowerControlPanel } from '@/components/dashboard/MowerControlPanel';
 import { MowerZoneManager } from '@/components/dashboard/MowerZoneManager';
-import { ConnectionStatus } from '@/components/dashboard/ConnectionStatus';
-import WebSocketEventsPanel from '@/components/dashboard/WebSocketEventsPanel';
-import { WebSocketStatusPanel } from '@/components/dashboard/WebSocketStatusPanel';
+import { ConnectionStatusIcons } from '@/components/dashboard/ConnectionStatusIcons';
 import { MowerStats } from '@/components/dashboard/mower-stats/MowerStats';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { WebSocketStatus } from '@/lib/husqvarna/websocket';
+import { SystemStatsWidget } from '@/components/dashboard/SystemStatsWidget';
 
 // Define mower status type
-export type MowerStatus = 'online' | 'charging' | 'mowing' | 'offline' | 'error' | 'paused' | 'returning';
+export type MowerStatus = 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked';
 
 // Define category filters
 const CATEGORIES = [
@@ -33,9 +33,13 @@ const CATEGORIES = [
 // Define status filters
 export const STATUS_FILTERS = [
   { id: 'all', name: 'All' },
-  { id: 'online', name: 'Online' },
-  { id: 'offline', name: 'Offline' },
-  { id: 'error', name: 'Error' }
+  { id: 'mowing', name: 'Mowing' },
+  { id: 'charging', name: 'Charging' },
+  { id: 'parked', name: 'Parked' },
+  { id: 'idle', name: 'Idle' },
+  { id: 'returning', name: 'Returning' },
+  { id: 'error', name: 'Error' },
+  { id: 'offline', name: 'Offline' }
 ];
 
 export default function DashboardPage() {
@@ -203,89 +207,79 @@ export default function DashboardPage() {
   // Render the dashboard content
   return (
     <div className="bg-background min-h-screen">
-      {/* Category filters row */}
-      <div className="flex justify-between items-center px-4 py-3">
-        <div className="flex items-center gap-2">
-          {CATEGORIES.map(category => (
+      {/* Combined filters bar - categories and statuses in one bar */}
+      <div className="flex flex-wrap justify-between items-center px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 mr-3">
+            {CATEGORIES.map(category => (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => setSelectedCategory(category.id)}
+                className={`rounded-full px-3 py-1 text-sm flex items-center ${
+                  selectedCategory === category.id 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'bg-secondary text-secondary-foreground'
+                }`}
+              >
+                <span 
+                  className="w-2 h-2 rounded-full mr-2" 
+                  style={{ backgroundColor: category.color }}
+                />
+                {category.name}
+              </button>
+            ))}
+            
             <button
-              key={category.id}
               type="button"
-              onClick={() => setSelectedCategory(category.id)}
-              className={`rounded-full px-3 py-1 text-sm flex items-center ${
-                selectedCategory === category.id 
-                  ? 'bg-primary text-primary-foreground' 
-                  : 'bg-secondary text-secondary-foreground'
-              }`}
+              className="rounded-full px-3 py-1 text-sm flex items-center bg-secondary text-secondary-foreground"
             >
-              <span 
-                className="w-2 h-2 rounded-full mr-2" 
-                style={{ backgroundColor: category.color }}
-              />
-              {category.name}
+              <Plus className="w-3 h-3 mr-1" /> Add Category
             </button>
-          ))}
+          </div>
           
-          <button
-            type="button"
-            className="rounded-full px-3 py-1 text-sm flex items-center bg-secondary text-secondary-foreground"
-          >
-            <Plus className="w-3 h-3 mr-1" /> Add Category
-          </button>
+          <div className="h-6 w-px bg-border mx-2 hidden md:block" />
+          
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="text-sm text-muted-foreground mr-2">Status:</div>
+            {STATUS_FILTERS.map(filter => (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setStatusFilter(filter.id)}
+                className={`rounded-md px-3 py-1 text-sm mr-1 ${
+                  statusFilter === filter.id 
+                    ? 'bg-primary text-primary-foreground' 
+                    : 'bg-secondary text-secondary-foreground'
+                }`}
+              >
+                {filter.name}
+              </button>
+            ))}
+          </div>
         </div>
         
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex items-center gap-3 ml-auto mt-2 md:mt-0">
+          <div className="text-sm text-muted-foreground whitespace-nowrap">
             Last update: {lastUpdated || "N/A"}
           </div>
         
           <button
             type="button"
             onClick={handleRefresh}
-            className="flex items-center justify-center px-3 py-1.5 rounded-md bg-secondary text-secondary-foreground"
+            className="flex items-center justify-center px-3 py-1.5 rounded-md bg-secondary text-secondary-foreground whitespace-nowrap"
           >
             <RefreshCw className="w-4 h-4 mr-1" />
             Refresh
           </button>
-          
-          <button
-            type="button"
-            className="flex items-center justify-center px-3 py-1.5 rounded-md bg-primary text-primary-foreground"
-          >
-            <Plus className="w-4 h-4 mr-1" />
-            Add Mower
-          </button>
         </div>
       </div>
     
-      {/* Status filters */}
-      <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-        <div className="flex items-center">
-          <div className="text-sm text-muted-foreground mr-2">Filter by status:</div>
-          {STATUS_FILTERS.map(filter => (
-            <button
-              key={filter.id}
-              type="button"
-              onClick={() => setStatusFilter(filter.id)}
-              className={`rounded-md px-3 py-1 text-sm mr-2 ${
-                statusFilter === filter.id 
-                  ? 'bg-primary text-primary-foreground' 
-                  : 'bg-secondary text-secondary-foreground'
-              }`}
-            >
-              {filter.name}
-            </button>
-          ))}
-        </div>
-        
-        {/* WebSocket status monitor */}
-        <WebSocketStatusPanel />
-      </div>
-    
-      {/* Map and weather section */}
-      <div className="flex px-4 py-4 border-t border-border">
-        {/* Map container - takes up most of the space */}
-        <div className="w-3/4 pr-4">
-          <div className="h-[350px] rounded-lg overflow-hidden bg-card">
+      {/* Map and widgets section */}
+      <div className="grid grid-cols-1 md:grid-cols-12 px-4 py-4 gap-4">
+        {/* Map container - takes up left side */}
+        <div className="md:col-span-6 h-[350px] md:h-[500px]">
+          <div className="h-full rounded-lg overflow-hidden bg-card shadow-sm">
             <GoogleMapView 
               mowers={mowerLocations}
               height="100%"
@@ -297,10 +291,33 @@ export default function DashboardPage() {
           </div>
         </div>
         
-        {/* Weather widget container */}
-        <div className="w-1/4 h-[350px]">
-          <div className="h-full bg-card rounded-lg overflow-hidden">
-            <WeatherWidget city="New York" width="100%" />
+        {/* System stats widget - middle */}
+        <div className="md:col-span-3 h-[350px] md:h-[500px]">
+          <SystemStatsWidget 
+            lastUpdated={lastUpdated} 
+            onRefresh={handleRefresh}
+            systemData={{
+              apiResponseTime: 320,
+              networkLatency: 56,
+              connectedMowers: dashboard.mowerData.filter(m => m.status !== 'offline').length,
+              totalMowers: dashboard.mowerData.length,
+              servicesStatus: {
+                api: true,
+                websocket: true,
+                database: true
+              }
+            }}
+            className="h-full"
+          />
+        </div>
+        
+        {/* Weather widget - right side */}
+        <div className="md:col-span-3 h-[350px] md:h-[500px]">
+          <div className="h-full bg-card rounded-lg overflow-hidden shadow-sm">
+            <WeatherWidget 
+              city="New York" 
+              className="h-full"
+            />
           </div>
         </div>
       </div>
@@ -341,11 +358,6 @@ export default function DashboardPage() {
         )}
       </div>
       
-      {/* WebSocket Events Panel */}
-      <div className="px-4 py-4 border-t border-border">
-        <WebSocketEventsPanel />
-      </div>
-      
       {/* Additional controls section */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 px-4 py-4 border-t border-border">
         <div className="bg-card p-4 rounded-lg">
@@ -379,7 +391,7 @@ export default function DashboardPage() {
                 batteryLevel={mowerDetails.batteryLevel}
                 areaComplete={mowerDetails.areaComplete}
                 status={mowerDetails.status as MowerStatus}
-                currentZone={mowerDetails.categories[0] || "Default Zone"}
+                currentZone={mowerDetails.categories?.[0] ? mowerDetails.categories[0] : "Default Zone"}
                 hideTopCard={false}
                 onCommand={handleMowerCommand}
                 supportsAreaCompletion={mowerDetails.supportsAreaCompletion}

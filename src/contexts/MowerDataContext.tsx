@@ -51,12 +51,35 @@ export function MowerDataProvider({
       try {
         setIsLoading(true);
         
-        // Start monitoring all mowers
-        const success = await dataService.startMonitoringAllMowers(pollInterval);
+        console.log('Initializing mower data collection...');
         
-        if (mounted) {
-          setIsInitialized(success);
-          setError(success ? null : new Error('Failed to initialize mower monitoring'));
+        // Step 1: First try to load data from Firebase (fastest)
+        const cachedData = await dataService.loadCachedMowerData();
+        
+        if (cachedData && cachedData.length > 0) {
+          console.log('Found cached mower data in Firebase:', cachedData.length, 'mowers');
+          // Display the cached data immediately
+          dataService.dispatchCachedMowerData(cachedData);
+          setIsLoading(false);
+        }
+        
+        // Step 2: Connect to WebSockets for real-time updates
+        const wsConnected = await dataService.connectWebSockets();
+        console.log('WebSocket connection attempt result:', wsConnected ? 'Connected' : 'Failed');
+        
+        // Step 3: If WebSocket fails or we have no cached data, fall back to API polling
+        if (!cachedData || cachedData.length === 0 || !wsConnected) {
+          console.log('Starting regular polling as fallback...');
+          // Start monitoring all mowers
+          const success = await dataService.startMonitoringAllMowers(pollInterval);
+          
+          if (mounted) {
+            setIsInitialized(success);
+            setError(success ? null : new Error('Failed to initialize mower monitoring'));
+            setIsLoading(false);
+          }
+        } else {
+          setIsInitialized(true);
           setIsLoading(false);
         }
       } catch (err) {

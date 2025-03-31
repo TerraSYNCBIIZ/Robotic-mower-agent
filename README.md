@@ -228,4 +228,51 @@ WEBSOCKET_PROXY_HOST=localhost # Host for the WebSocket proxy server
 
 You can test WebSocket connectivity by visiting `/test-websocket` in the app.
 
-For more details, see the [WebSocket Proxy README](./websocket-proxy/README.md). 
+For more details, see the [WebSocket Proxy README](./websocket-proxy/README.md).
+
+## MCP Chatbot Integration
+
+We've added a new natural language interface using the Model Context Protocol (MCP) that allows you to control your robotic mower through conversational commands.
+
+### Features
+
+- **Natural Language Control**: Send commands like "Start mowing for 2 hours" directly through the chat interface
+- **Status Inquiries**: Ask about battery level, current activity, or scheduled tasks
+- **Schedule Management**: View and modify mowing schedules through conversation
+- **Seamless Integration**: Works alongside our optimized WebSocket/Firebase system
+
+### Setup
+
+1. Install required packages:
+
+```bash
+npm install @anthropic-ai/mcp-sdk
+```
+
+2. Configure environment variables (copy `.env.local.example` to `.env.local`):
+
+```
+# Claude API key (for MCP chatbot)
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# Public URL for MCP server
+NEXT_PUBLIC_URL=http://localhost:3000
+```
+
+3. Restart the server:
+
+```bash
+npm run dev
+```
+
+4. Access the chat interface at `/chat`
+
+### How It Works
+
+The MCP integration extends our system with:
+
+1. An **MCP Server** that exposes mower operations (starting, stopping, scheduling) as tools
+2. A **Chat Interface** for conversational interactions
+3. Integration with the **Claude API** for natural language understanding
+
+This allows users to control their mowers through simple text commands without navigating through the UI. 

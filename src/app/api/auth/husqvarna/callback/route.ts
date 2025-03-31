@@ -21,9 +21,11 @@ export async function GET(req: NextRequest) {
     const client = new HusqvarnaClient();
     
     // Set the redirect URI (must exactly match what was used in the auth request)
+    // Make sure this is exactly the same as used in the initial authorization URL
     const redirectUri = "http://localhost:3000/api/auth/husqvarna/callback";
     
     console.log("Exchanging code for tokens with redirectUri:", redirectUri);
+    console.log("Code parameter (first 10 chars):", code.substring(0, 10) + "...");
     
     // Exchange the code for tokens
     const authData = await client.getTokensFromCode(code, redirectUri);

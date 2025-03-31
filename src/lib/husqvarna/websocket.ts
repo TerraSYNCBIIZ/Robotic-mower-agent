@@ -55,6 +55,7 @@ export interface ConnectionMetrics {
   lastError: string | null;
   connectedSince: Date | null;
   disconnectedSince: Date | null;
+  lastActivity: number | null;
 }
 
 // Web Socket event interfaces
@@ -90,17 +91,27 @@ export interface PositionEvent extends MowerEvent {
     };
   }
   
-  /**
- * Husqvarna WebSocket Manager
+// Singleton instance
+let wsManagerInstance: HusqvarnaWebSocketManager | null = null;
+// Event dispatcher for global events
+const globalEventDispatcher = typeof window !== 'undefined' ? window : new EventEmitter();
+
+/**
+ * Husqvarna WebSocket Manager - Singleton pattern
  * Manages the WebSocket connection to Husqvarna API via our proxy server
  */
 export class HusqvarnaWebSocketManager extends EventEmitter {
-  private websocket: WebSocket | null = null;
-  private status = WebSocketStatus.DISCONNECTED;
+  private socket: WebSocket | null = null;
+  private status: WebSocketStatus = WebSocketStatus.DISCONNECTED;
+  private reconnectAttempts = 0;
+  private maxReconnectAttempts = 5;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
+  private isReconnecting = false;
+  private lastMessageTime = 0;
+  private healthCheckInterval: NodeJS.Timeout | null = null;
   private connectionAttempts = 0;
   private maxConnectionAttempts = 5;
-  private pingInterval: number | null = null;
-  private reconnectTimeout: number | null = null;
   private connectionMetrics: ConnectionMetrics = {
     wsUrl: '',
     status: WebSocketStatus.DISCONNECTED,
@@ -109,369 +120,460 @@ export class HusqvarnaWebSocketManager extends EventEmitter {
     totalMessagesReceived: 0,
     lastError: null,
     connectedSince: null,
-    disconnectedSince: new Date()
+    disconnectedSince: new Date(),
+    lastActivity: null
   };
   
+  // Last connection check time to throttle status checks
+  private lastConnectionCheck = 0;
+  private connectionCheckThrottle = 5000; // 5 seconds
+  
   /**
-   * Connect to the WebSocket via our proxy server
-   * @returns Promise that resolves to true if connected successfully, false otherwise
+   * Private constructor for singleton pattern
+   */
+  private constructor() {
+    super();
+    // Initialize with no listeners
+    
+    // Set up global event listener for status changes
+    if (typeof window !== 'undefined') {
+      window.addEventListener('websocket-status-requested', () => {
+        // Respond with current status without causing a new connection
+        this.broadcastStatus();
+      });
+    }
+  }
+  
+  /**
+   * Get the singleton instance
+   */
+  public static getInstance(): HusqvarnaWebSocketManager {
+    if (!wsManagerInstance) {
+      wsManagerInstance = new HusqvarnaWebSocketManager();
+      
+      // Check for existing connection in session storage
+      if (typeof window !== 'undefined') {
+        // Clear disconnected status if it was stored from a previous session
+        // We'll check the actual proxy status instead
+        sessionStorage.removeItem('websocket_status');
+        
+        // Check if proxy has active connection
+        wsManagerInstance.checkProxyStatus();
+      }
+    }
+    return wsManagerInstance;
+  }
+  
+  /**
+   * Check if the proxy server has an active persistent connection
+   */
+  private async checkProxyStatus(): Promise<void> {
+    try {
+      const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/proxy/websocket/status`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // If proxy has a persistent connection, update our status
+        if (data.persistentConnection) {
+          console.log('Proxy server has active persistent connection');
+          this.setStatus(WebSocketStatus.CONNECTED);
+          
+          // Also broadcast an event to tell components to update
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('proxy-connection-active', {
+              detail: { active: true }
+            }));
+          }
+        } else {
+          console.log('Proxy server has no active persistent connection');
+        }
+      }
+    } catch (error) {
+      console.error('Error checking proxy status:', error);
+    }
+  }
+  
+  /**
+   * Connect to the Husqvarna WebSocket API
+   * Adds throttling to prevent too many connection attempts
    */
   async connect(): Promise<boolean> {
     try {
-      // Check if we're already connected
-      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-        console.log('WebSocket already connected');
+      // If already connected, don't try again
+      if (this.status === WebSocketStatus.CONNECTED) {
+        console.log('WebSocket is already connected');
         return true;
       }
       
-      // If a connection attempt is in progress (connecting state), wait for it to complete
-      if (this.websocket && this.websocket.readyState === WebSocket.CONNECTING) {
-        console.log('WebSocket connection in progress, waiting...');
-        return new Promise<boolean>((resolve) => {
-          const checkConnection = () => {
-            if (!this.websocket) {
-              resolve(false);
-              return;
-            }
-            
-            if (this.websocket.readyState === WebSocket.OPEN) {
-              resolve(true);
-            } else if (this.websocket.readyState === WebSocket.CLOSED || 
-                     this.websocket.readyState === WebSocket.CLOSING) {
-              resolve(false);
-            } else {
-              // Still connecting, check again in 100ms
-              setTimeout(checkConnection, 100);
-            }
-          };
-          
-          setTimeout(checkConnection, 100);
-        });
+      // If already connecting, don't start another connection attempt
+      if (this.status === WebSocketStatus.CONNECTING) {
+        console.log('WebSocket is already connecting');
+        // Check if we've been stuck in "connecting" state for too long (>15 seconds)
+        if (this.connectionMetrics.lastActivity) {
+          const now = Date.now();
+          const connectingTime = now - this.connectionMetrics.lastActivity;
+          if (connectingTime > 15000) { // 15 seconds
+            console.log('Connection attempt taking too long, resetting state');
+            this.status = WebSocketStatus.DISCONNECTED;
+          } else {
+            // Still in reasonable connecting timeframe, wait
+            return false;
+          }
+        } else {
+          return false;
+        }
       }
       
-      // Dispose any existing connection
-      this.disconnect();
+      // Check if we've tried to connect recently - throttle connection attempts
+      const now = Date.now();
+      if (now - this.lastConnectionCheck < this.connectionCheckThrottle) {
+        console.log('Connection attempt throttled, waiting a few seconds');
+        // Return false instead of comparing status
+        return false;
+      }
       
-      // Reset connection state
-      this.connectionAttempts++;
-      this.connectionMetrics.connectionAttempts = this.connectionAttempts;
-      this.connectionMetrics.lastError = null;
-      
-      // Update connection status
+      this.lastConnectionCheck = now;
+      this.connectionMetrics.lastActivity = now;
       this.setStatus(WebSocketStatus.CONNECTING);
       
-      // Get the WebSocket proxy details from our API endpoint
-      const response = await fetch('/api/proxy/websocket', {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        },
-        credentials: 'include', // Include cookies for authentication
-        cache: 'no-store' // Prevent caching of the proxy details
-      });
+      // Get WebSocket auth token from API with no-cache to prevent using stale tokens
+      const headers: HeadersInit = {};
+      if (this.connectionAttempts > 0) {
+        // Only skip cache after first attempt to reduce API calls
+        headers['cache-control'] = 'no-cache';
+      }
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Failed to get WebSocket proxy details:', errorData);
+      console.log('Getting WebSocket auth token...');
+      const data = await husqvarnaApi.getWebSocketAuthToken(headers);
+      
+      if (!data || !data.token) {
+        console.error('Failed to get WebSocket auth token');
         this.setStatus(WebSocketStatus.ERROR);
-        this.connectionMetrics.lastError = `Failed to get WebSocket proxy details: ${errorData.error || response.statusText}`;
         return false;
       }
       
-      const data = await response.json();
+      // Connect to WebSocket API via proxy
+      console.log('Connecting to WebSocket proxy...');
       
-      if (!data.wsProxyUrl || !data.token || !data.apiKey) {
-        console.error('Invalid WebSocket proxy details:', data);
-        this.setStatus(WebSocketStatus.ERROR);
-        this.connectionMetrics.lastError = 'Invalid WebSocket proxy details';
-        return false;
-      }
+      // Use WebSocket proxy with the token
+      // The proxy URL is returned from the API endpoint
+      const wsProxyUrl = data.wsProxyUrl ? 
+        `${data.wsProxyUrl}?token=${data.token}` : 
+        `ws://localhost:8000?token=${data.token}`;
       
-      // Update connection metrics with the URL
-      this.connectionMetrics.wsUrl = data.wsProxyUrl;
+      console.log(`Using WebSocket URL: ${wsProxyUrl}`);
+      this.connectionMetrics.wsUrl = wsProxyUrl;
       
-      // Create WebSocket URL with token as query parameter for our proxy
-      const wsUrl = `${data.wsProxyUrl}?token=${encodeURIComponent(data.token)}&apiKey=${encodeURIComponent(data.apiKey)}`;
-      
-      console.log(`Connecting to WebSocket proxy at ${data.wsProxyUrl}`);
-      
-      // Create new WebSocket connection to our proxy
-      this.websocket = new WebSocket(wsUrl);
-      
-      // Set up a connection timeout
-      this.clearReconnectTimeout();
-      this.reconnectTimeout = window.setTimeout(() => {
-        if (this.status !== WebSocketStatus.CONNECTED) {
-          console.error('WebSocket connection timed out');
-          this.connectionMetrics.lastError = 'Connection timeout';
-          
-          // Close the socket if it's still connecting
-          if (this.websocket && this.websocket.readyState === WebSocket.CONNECTING) {
-            this.websocket.close();
-            this.websocket = null;
-          }
-          
-          this.setStatus(WebSocketStatus.ERROR);
-        }
-      }, 10000) as unknown as number; // 10 second timeout
+      this.socket = new WebSocket(wsProxyUrl);
       
       // Set up event handlers
-      this.websocket.onopen = this.handleOpen.bind(this);
-      this.websocket.onmessage = this.handleMessage.bind(this);
-      this.websocket.onerror = this.handleError.bind(this);
-      this.websocket.onclose = this.handleClose.bind(this);
+      this.socket.onopen = this.handleOpen.bind(this);
+      this.socket.onmessage = this.handleMessage.bind(this);
+      this.socket.onerror = this.handleError.bind(this);
+      this.socket.onclose = this.handleClose.bind(this);
       
-      // Wait for the connection to be established or fail
-      return new Promise<boolean>((resolve) => {
-        const checkConnection = () => {
-          if (!this.websocket) {
-            resolve(false);
-            return;
+      // Set up timeout for connection
+      const timeout = setTimeout(() => {
+        if (this.status === WebSocketStatus.CONNECTING) {
+          console.error('WebSocket connection timed out');
+          this.disconnect();
+          this.setStatus(WebSocketStatus.ERROR);
+        }
+      }, 10000); // 10 second timeout
+      
+      // Wait for connection
+      return new Promise((resolve) => {
+        const checkStatus = setInterval(() => {
+          if (this.status !== WebSocketStatus.CONNECTING) {
+            clearInterval(checkStatus);
+            clearTimeout(timeout);
+            resolve(this.status === WebSocketStatus.CONNECTED);
           }
-          
-          if (this.status === WebSocketStatus.CONNECTED) {
-            resolve(true);
-          } else if (this.status === WebSocketStatus.ERROR || this.status === WebSocketStatus.DISCONNECTED) {
-            resolve(false);
-          } else {
-            // Still connecting, check again in 100ms
-            setTimeout(checkConnection, 100);
-          }
-        };
-        
-        setTimeout(checkConnection, 100);
+        }, 100);
       });
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);
       this.setStatus(WebSocketStatus.ERROR);
-      this.connectionMetrics.lastError = error instanceof Error ? error.message : String(error);
       return false;
     }
   }
   
   /**
+   * Disconnect from the WebSocket API
+   */
+  disconnect() {
+    this.stopHealthCheck();
+    this.stopPing();
+    
+    if (this.socket) {
+      console.log('Disconnecting from WebSocket...');
+      this.socket.close();
+      this.socket = null;
+    }
+    
+    this.setStatus(WebSocketStatus.DISCONNECTED);
+  }
+  
+  /**
+   * Dispose of the WebSocket manager
+   */
+  dispose() {
+    this.stopReconnect();
+    this.disconnect();
+    this.removeAllListeners();
+  }
+  
+  /**
    * Handle WebSocket open event
    */
-  private handleOpen(): void {
-    this.clearReconnectTimeout();
+  private handleOpen() {
     console.log('WebSocket connection established');
     this.setStatus(WebSocketStatus.CONNECTED);
-    this.connectionMetrics.connectedSince = new Date();
-    this.connectionMetrics.disconnectedSince = null;
-    
-    // Start the ping interval to keep the connection alive
-    this.startPingInterval();
+    this.resetReconnectAttempts();
+    this.lastMessageTime = Date.now();
+    this.startPing();
+    this.startHealthCheck();
   }
   
   /**
    * Handle WebSocket message event
    */
-  private handleMessage(event: MessageEvent): void {
+  private handleMessage(event: MessageEvent) {
     try {
-      // Parse the message
-      const message = JSON.parse(event.data as string);
+      // Update last message time
+      this.lastMessageTime = Date.now();
       
-      // Update metrics
-      this.connectionMetrics.totalMessagesReceived++;
-      this.connectionMetrics.lastMessageTime = new Date();
+      // Parse message
+      const message = JSON.parse(event.data);
       
-      // Handle connection status messages from our proxy
-      if (message.type === 'connection_status') {
-        console.log(`WebSocket connection status: ${message.status}`);
-        return;
+      // Debug
+      if (message.type !== 'ping') {
+        console.log(`WebSocket message received: ${message.type || 'unknown'}`);
       }
       
-      // Emit the message
+      // Emit message event
       this.emit('message', message);
     } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
+      console.error('Error parsing WebSocket message:', error, event.data);
     }
   }
   
   /**
    * Handle WebSocket error event
    */
-  private handleError(event: Event): void {
+  private handleError(event: Event) {
     console.error('WebSocket error:', event);
-    this.connectionMetrics.lastError = 'Connection error';
     this.setStatus(WebSocketStatus.ERROR);
-    
-    // Emit the error
     this.emit('error', event);
+    this.attemptReconnect();
   }
   
   /**
    * Handle WebSocket close event
    */
-  private handleClose(event: CloseEvent): void {
-    this.clearPingInterval();
+  private handleClose(event: CloseEvent) {
     console.log(`WebSocket connection closed: ${event.code} ${event.reason}`);
-    this.setStatus(WebSocketStatus.DISCONNECTED);
-    this.connectionMetrics.disconnectedSince = new Date();
-    this.connectionMetrics.connectedSince = null;
     
-    // Emit the close event
-    this.emit('close', event);
+    this.stopPing();
+    this.stopHealthCheck();
     
-    // Clean up
-    this.websocket = null;
-    
-    // Add a delay before reconnecting based on the close code
-    let shouldReconnect = false;
-    let reconnectDelay = 1000;
-    
-    // Determine if we should reconnect based on the close code
-    if (event.code === 1000 || event.code === 1001) {
-      // Normal closure, only reconnect if it was for a reconnect
-      shouldReconnect = event.reason === 'Reconnecting';
-    } else if (event.code === 1006) {
-      // Abnormal closure (e.g., server crashed)
-      console.warn('Abnormal WebSocket closure, will attempt to reconnect');
-      shouldReconnect = true;
-      reconnectDelay = 5000; // Wait a bit longer for abnormal closures
-    } else if (event.code >= 4000) {
-      // Application-specific error codes
-      console.error(`WebSocket closed with application code ${event.code}: ${event.reason}`);
-      shouldReconnect = false; // Don't retry auth errors or other app errors
-    } else {
-      // Other closure, attempt to reconnect
-      shouldReconnect = true;
+    // Only set to disconnected if we're not in error state
+    if (this.status !== WebSocketStatus.ERROR) {
+      this.setStatus(WebSocketStatus.DISCONNECTED);
     }
     
-    // Attempt to reconnect if needed
-    if (shouldReconnect && this.connectionAttempts < this.maxConnectionAttempts) {
-      console.log(`Will attempt to reconnect in ${reconnectDelay}ms...`);
-      this.clearReconnectTimeout();
-      this.reconnectTimeout = window.setTimeout(() => {
-        this.connect().catch(error => {
-          console.error('Reconnection attempt failed:', error);
-        });
-      }, reconnectDelay) as unknown as number;
-    } else if (this.connectionAttempts >= this.maxConnectionAttempts) {
-      console.error(`Maximum reconnect attempts (${this.maxConnectionAttempts}) reached`);
+    // Attempt to reconnect
+    this.attemptReconnect();
+  }
+  
+  /**
+   * Set the WebSocket status and emit status change event
+   * Also broadcasts to global window events
+   */
+  private setStatus(status: WebSocketStatus) {
+    if (this.status !== status) {
+      console.log(`WebSocket status changed from ${this.status} to ${status}`);
+      this.status = status;
+      this.emit('status_change', status);
+      
+      // Update the connection metrics
+      if (status === WebSocketStatus.CONNECTED) {
+        this.connectionMetrics.connectedSince = new Date();
+        this.connectionMetrics.disconnectedSince = null;
+      } else if (status === WebSocketStatus.DISCONNECTED || status === WebSocketStatus.ERROR) {
+        this.connectionMetrics.disconnectedSince = new Date();
+      }
+      
+      this.connectionMetrics.status = status;
+      this.connectionMetrics.lastActivity = Date.now();
+      
+      // Store status in session storage for persistence
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('websocket_status', status);
+      }
+      
+      // Broadcast the status change to all components
+      this.broadcastStatus();
     }
   }
   
   /**
-   * Start ping interval to keep connection alive
+   * Broadcast status to global event system
    */
-  private startPingInterval(): void {
-    this.clearPingInterval();
-    
-    // Send ping every 20 seconds to keep the connection alive (more frequent than default)
-    this.pingInterval = window.setInterval(() => {
-      if (this.websocket && this.websocket.readyState === WebSocket.OPEN) {
-        try {
-          // Send a ping message to our proxy, which will keep the connection alive
-          this.websocket.send(JSON.stringify({ 
-            type: 'ping', 
-            timestamp: Date.now() 
-          }));
-          
-          // Check if we haven't received a message in a while (2 minutes)
-          const lastMessageTime = this.connectionMetrics.lastMessageTime;
-          if (lastMessageTime && (Date.now() - lastMessageTime.getTime() > 120000)) {
-            console.warn('No WebSocket messages received in 2 minutes, reconnecting...');
-            // Force reconnect to ensure connection is still alive
-            this.reconnect();
-          }
-        } catch (error) {
-          console.error('Error sending ping:', error);
-          // Connection might be broken, try to reconnect
-          this.reconnect();
+  private broadcastStatus() {
+    if (typeof window !== 'undefined') {
+      // Create a custom event to notify all components
+      const statusEvent = new CustomEvent('websocket-status-change', {
+        detail: {
+          status: this.status,
+          metrics: this.getConnectionMetrics()
         }
-      }
-    }, 20000) as unknown as number;
-  }
-  
-  /**
-   * Force a reconnection (close and reopen)
-   */
-  private reconnect(): void {
-    if (this.websocket) {
-      // Close the current connection
-      try {
-        this.websocket.close(1000, 'Reconnecting');
-      } catch (error) {
-        console.error('Error closing WebSocket for reconnect:', error);
-      }
+      });
       
-      this.websocket = null;
-      this.setStatus(WebSocketStatus.DISCONNECTED);
-      
-      // Immediately try to reconnect
-      setTimeout(() => {
-        this.connect().catch(error => {
-          console.error('Reconnection failed:', error);
-        });
-      }, 1000);
+      // Dispatch the event globally
+      window.dispatchEvent(statusEvent);
     }
   }
   
   /**
-   * Clear ping interval
-   */
-  private clearPingInterval(): void {
-    if (this.pingInterval !== null) {
-      window.clearInterval(this.pingInterval);
-      this.pingInterval = null;
-    }
-  }
-  
-  /**
-   * Clear reconnect timeout
-   */
-  private clearReconnectTimeout(): void {
-    if (this.reconnectTimeout !== null) {
-      window.clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-  }
-  
-  /**
-   * Disconnect from the WebSocket
-   */
-  disconnect(): void {
-    this.clearPingInterval();
-    this.clearReconnectTimeout();
-    
-    if (this.websocket) {
-      console.log('Disconnecting from WebSocket');
-      this.websocket.close(1000, 'Client disconnected');
-      this.websocket = null;
-      this.setStatus(WebSocketStatus.DISCONNECTED);
-      this.connectionMetrics.disconnectedSince = new Date();
-      this.connectionMetrics.connectedSince = null;
-    }
-  }
-  
-  /**
-   * Get the current connection status
+   * Get the current WebSocket status without triggering connections
    */
   getStatus(): WebSocketStatus {
     return this.status;
   }
   
   /**
-   * Set the connection status and emit an event
+   * Check if WebSocket is connected
    */
-  private setStatus(status: WebSocketStatus): void {
-    // Only emit if the status has changed
-    if (this.status !== status) {
-      this.status = status;
-      this.connectionMetrics.status = status;
-      
-      // Emit the status change event
-    this.emit('status_change', status);
+  isConnected(): boolean {
+    return this.status === WebSocketStatus.CONNECTED;
+  }
+  
+  /**
+   * Send ping message to keep connection alive
+   */
+  private startPing() {
+    // Clear any existing ping interval
+    this.stopPing();
     
-    // Also dispatch a DOM event for components to listen to
-    if (typeof window !== 'undefined') {
-        const event = new CustomEvent('websocket-status-change', { 
-        detail: { status }
-        });
-        window.dispatchEvent(event);
+    // Set up ping interval (every 30 seconds)
+    this.pingInterval = setInterval(() => {
+      if (this.status === WebSocketStatus.CONNECTED && this.socket) {
+        try {
+          // Send ping
+          this.socket.send(JSON.stringify({ type: 'ping' }));
+        } catch (error) {
+          console.error('Error sending ping:', error);
+          this.disconnect();
+          this.attemptReconnect();
+        }
       }
+    }, 30000); // 30 seconds
+  }
+  
+  /**
+   * Stop sending ping messages
+   */
+  private stopPing() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
     }
+  }
+  
+  /**
+   * Start health check to detect stale connections
+   */
+  private startHealthCheck() {
+    // Clear any existing health check
+    this.stopHealthCheck();
+    
+    // Set up health check (every minute)
+    this.healthCheckInterval = setInterval(() => {
+      // If no message received in 2 minutes, reconnect
+      const now = Date.now();
+      const messageAge = now - this.lastMessageTime;
+      
+      if (messageAge > 120000) { // 2 minutes
+        console.warn(`No WebSocket messages received in ${messageAge / 1000} seconds, reconnecting...`);
+        this.disconnect();
+        this.attemptReconnect();
+      }
+    }, 60000); // Check every minute
+  }
+  
+  /**
+   * Stop health check
+   */
+  private stopHealthCheck() {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+  
+  /**
+   * Attempt to reconnect to WebSocket with exponential backoff
+   */
+  private attemptReconnect() {
+    // Don't attempt to reconnect if we're already trying
+    if (this.isReconnecting) {
+      return;
+    }
+    
+    this.isReconnecting = true;
+    
+    // Stop any existing reconnect timer
+    this.stopReconnect();
+    
+    // Check if we've exceeded max attempts
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.warn(`Exceeded maximum reconnect attempts (${this.maxReconnectAttempts}), giving up`);
+      this.isReconnecting = false;
+      return;
+    }
+    
+    // Calculate backoff time (exponential with jitter)
+    const backoffMs = Math.min(
+      1000 * Math.pow(2, this.reconnectAttempts) + Math.random() * 1000,
+      30000 // Max 30 seconds
+    );
+    
+    console.log(`WebSocket reconnect attempt ${this.reconnectAttempts + 1} scheduled in ${Math.round(backoffMs / 1000)} seconds`);
+    
+    // Schedule reconnect
+    this.reconnectTimer = setTimeout(async () => {
+      this.reconnectAttempts++;
+      console.log(`Attempting WebSocket reconnection (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+      
+      const connected = await this.connect();
+      
+      if (!connected) {
+        // If still not connected, try again
+        this.attemptReconnect();
+      }
+      
+      this.isReconnecting = false;
+    }, backoffMs);
+  }
+  
+  /**
+   * Stop reconnect attempts
+   */
+  private stopReconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+  
+  /**
+   * Reset reconnect attempts counter
+   */
+  private resetReconnectAttempts() {
+    this.reconnectAttempts = 0;
   }
   
   /**
@@ -479,13 +581,5 @@ export class HusqvarnaWebSocketManager extends EventEmitter {
    */
   getConnectionMetrics(): ConnectionMetrics {
     return { ...this.connectionMetrics };
-  }
-  
-  /**
-   * Clean up resources
-   */
-  dispose(): void {
-    this.disconnect();
-    this.removeAllListeners();
   }
 } 
