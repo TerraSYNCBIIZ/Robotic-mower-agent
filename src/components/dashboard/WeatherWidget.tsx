@@ -32,7 +32,7 @@ interface WeatherWidgetProps {
 
 const WeatherWidget = ({
   className = "",
-  width = "16rem",
+  width = "100%",
   onFetchWeather,
   city = "New York",
   latitude,
@@ -42,6 +42,7 @@ const WeatherWidget = ({
   const [loading, setLoading] = React.useState<boolean>(true)
   const [error, setError] = React.useState<string | null>(null)
   const [refreshing, setRefreshing] = React.useState<boolean>(false)
+  const [dialogOpen, setDialogOpen] = React.useState<boolean>(false)
 
   const fetchWeather = React.useCallback(async () => {
     setRefreshing(true)
@@ -122,132 +123,159 @@ const WeatherWidget = ({
   }
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Card 
-          className={`overflow-hidden rounded-xl cursor-pointer hover:shadow-md transition-shadow duration-200 ${className}`}
-          style={{ width }}
-        >
-          <CardContent className="p-4">
-            {loading ? (
-              <div className="flex items-center justify-center p-4">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-              </div>
-            ) : error ? (
-              <div className="p-4 text-center">
-                <p className="text-sm text-destructive mb-2">{error}</p>
+    <>
+      <Card 
+        className={`overflow-hidden rounded-xl hover:shadow-md transition-shadow duration-200 h-full flex flex-col ${className}`}
+        style={{ width }}
+        onClick={() => setDialogOpen(true)}
+        role="button"
+      >
+        <CardContent className="p-4 flex-grow flex flex-col justify-between">
+          {loading ? (
+            <div className="flex items-center justify-center p-4 h-full">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : error ? (
+            <div className="p-4 text-center h-full flex flex-col justify-center">
+              <p className="text-sm text-destructive mb-2">{error}</p>
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleRefresh()
+                }}
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input hover:bg-accent hover:text-accent-foreground h-8 px-3 py-2"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                <span>Try Again</span>
+              </button>
+            </div>
+          ) : weather && (
+            <div className="flex flex-col h-full justify-between">
+              <div className="flex justify-between items-start mb-4">
+                <div className="text-5xl">
+                  {getWeatherIcon(weather.weatherType, weather.isDay)}
+                </div>
                 <button 
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     handleRefresh()
                   }}
-                  className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input hover:bg-accent hover:text-accent-foreground h-8 px-3 py-2"
+                  className="text-muted-foreground hover:text-foreground transition-colors rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-ring"
                 >
-                  <RefreshCw className="h-4 w-4 mr-1" />
-                  <span>Try Again</span>
+                  <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
                 </button>
               </div>
-            ) : weather && (
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <div className="text-3xl">
-                    {getWeatherIcon(weather.weatherType, weather.isDay)}
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleRefresh()
-                    }}
-                    className="text-muted-foreground hover:text-foreground transition-colors rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
-                  </button>
+              
+              <div className="space-y-4 flex-grow">
+                <div className="text-5xl font-extralight mb-2">
+                  {weather.temperature}<span className="text-3xl">°</span>
                 </div>
-                <div className="space-y-1">
-                  <div className="text-4xl font-extralight">
-                    {weather.temperature}<span className="text-2xl">°</span>
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <MapPin size={12} className="mr-1" />
+                
+                <div className="space-y-1 mb-4">
+                  <div className="flex items-center text-sm text-muted-foreground">
+                    <MapPin size={16} className="mr-1" />
                     <span>{weather.city}</span>
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-sm text-muted-foreground">
                     {weather.dateTime}
                   </div>
                 </div>
+              
+                {/* Additional weather info */}
+                <div className="grid grid-cols-3 gap-2 pt-4 border-t mt-auto">
+                  <div className="flex flex-col items-center">
+                    <Droplets className="h-4 w-4 text-blue-500 mb-1" />
+                    <span className="text-xs font-medium">Humidity</span>
+                    <span className="text-sm">{weather.humidity || '60'}%</span>
+                  </div>
+                  
+                  <div className="flex flex-col items-center">
+                    <Wind className="h-4 w-4 text-slate-500 mb-1" />
+                    <span className="text-xs font-medium">Wind</span>
+                    <span className="text-sm">{weather.windSpeed || '5'} km/h</span>
+                  </div>
+                  
+                  <div className="flex flex-col items-center">
+                    <Umbrella className="h-4 w-4 text-indigo-500 mb-1" />
+                    <span className="text-xs font-medium">Rain</span>
+                    <span className="text-sm">{weather.precipitation || '0'}%</span>
+                  </div>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
-      </DialogTrigger>
+            </div>
+          )}
+        </CardContent>
+      </Card>
       
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Weather Forecast</DialogTitle>
-        </DialogHeader>
-        
-        {weather && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="text-4xl">
-                  {getWeatherIcon(weather.weatherType, weather.isDay)}
-                </div>
-                <div>
-                  <div className="text-5xl font-light">
-                    {weather.temperature}<span className="text-3xl">°</span>
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Weather Forecast</DialogTitle>
+          </DialogHeader>
+          
+          {weather && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="text-4xl">
+                    {getWeatherIcon(weather.weatherType, weather.isDay)}
                   </div>
-                  <div className="text-sm text-muted-foreground capitalize">
-                    {weather.weatherType.replace('-', ' ')}
+                  <div>
+                    <div className="text-5xl font-light">
+                      {weather.temperature}<span className="text-3xl">°</span>
+                    </div>
+                    <div className="text-sm text-muted-foreground capitalize">
+                      {weather.weatherType.replace('-', ' ')}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="text-right">
-                <div className="text-lg font-medium">{weather.city}</div>
-                <div className="text-sm text-muted-foreground">{weather.dateTime}</div>
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-3 gap-4 pt-4 border-t">
-              <div className="flex flex-col items-center gap-1">
-                <Droplets className="h-5 w-5 text-blue-500" />
-                <span className="text-sm font-medium">Humidity</span>
-                <span className="text-lg">{weather.humidity}%</span>
+                <div className="text-right">
+                  <div className="text-lg font-medium">{weather.city}</div>
+                  <div className="text-sm text-muted-foreground">{weather.dateTime}</div>
+                </div>
               </div>
               
-              <div className="flex flex-col items-center gap-1">
-                <Wind className="h-5 w-5 text-slate-500" />
-                <span className="text-sm font-medium">Wind</span>
-                <span className="text-lg">{weather.windSpeed} km/h</span>
+              <div className="grid grid-cols-3 gap-4 pt-4 border-t">
+                <div className="flex flex-col items-center gap-1">
+                  <Droplets className="h-5 w-5 text-blue-500" />
+                  <span className="text-sm font-medium">Humidity</span>
+                  <span className="text-lg">{weather.humidity}%</span>
+                </div>
+                
+                <div className="flex flex-col items-center gap-1">
+                  <Wind className="h-5 w-5 text-slate-500" />
+                  <span className="text-sm font-medium">Wind</span>
+                  <span className="text-lg">{weather.windSpeed} km/h</span>
+                </div>
+                
+                <div className="flex flex-col items-center gap-1">
+                  <Umbrella className="h-5 w-5 text-indigo-500" />
+                  <span className="text-sm font-medium">Precipitation</span>
+                  <span className="text-lg">{weather.precipitation}%</span>
+                </div>
               </div>
               
-              <div className="flex flex-col items-center gap-1">
-                <Umbrella className="h-5 w-5 text-indigo-500" />
-                <span className="text-sm font-medium">Precipitation</span>
-                <span className="text-lg">{weather.precipitation}%</span>
+              <div className="pt-4 border-t">
+                <h3 className="text-sm font-medium mb-2">Forecast</h3>
+                <div className="grid grid-cols-4 gap-2">
+                  {[1, 2, 3, 4].map((day) => (
+                    <div key={day} className="flex flex-col items-center p-2 rounded-md bg-muted/50">
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(Date.now() + day * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { weekday: 'short' })}
+                      </span>
+                      <Sun className="h-5 w-5 my-1 text-amber-400" />
+                      <span className="text-sm font-medium">{Math.round(weather.temperature + (Math.random() * 6 - 3))}°</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-            
-            <div className="pt-4 border-t">
-              <h3 className="text-sm font-medium mb-2">Forecast</h3>
-              <div className="grid grid-cols-4 gap-2">
-                {[1, 2, 3, 4].map((day) => (
-                  <div key={day} className="flex flex-col items-center p-2 rounded-md bg-muted/50">
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(Date.now() + day * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { weekday: 'short' })}
-                    </span>
-                    <Sun className="h-5 w-5 my-1 text-amber-400" />
-                    <span className="text-sm font-medium">{Math.round(weather.temperature + (Math.random() * 6 - 3))}°</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

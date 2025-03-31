@@ -121,8 +121,9 @@ export class HusqvarnaClient {
   private apiEndpoint = 'https://api.amc.husqvarna.dev/v1';
 
   constructor(authToken?: string) {
-    this.appKey = HUSQVARNA_API.APP_KEY;
-    this.clientSecret = HUSQVARNA_API.CLIENT_SECRET;
+    // Ensure credentials are properly trimmed
+    this.appKey = HUSQVARNA_API.APP_KEY.trim();
+    this.clientSecret = HUSQVARNA_API.CLIENT_SECRET.trim();
     this.authToken = authToken || '';
     
     // Use the authToken as the initial accessToken if provided
@@ -156,21 +157,34 @@ export class HusqvarnaClient {
 
   // Generate the login URL for the user to authorize the application
   getAuthorizationUrl(redirectUri: string): string {
-    return `${HUSQVARNA_API.OAUTH_AUTHORIZE_URL}?client_id=${this.appKey}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('iam:read amc:api')}`;
+    // Trim the appKey to remove any potential whitespace
+    const trimmedAppKey = this.appKey.trim();
+    return `${HUSQVARNA_API.OAUTH_AUTHORIZE_URL}?client_id=${trimmedAppKey}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('iam:read amc:api')}`;
   }
 
   // Exchange authorization code for tokens
   async getTokensFromCode(code: string, redirectUri: string): Promise<HusqvarnaAuthResponse> {
     const params = new URLSearchParams();
     params.set('grant_type', 'authorization_code');
-    params.set('client_id', this.appKey);
-    params.set('client_secret', this.clientSecret);
+    // Trim credentials to remove any whitespace
+    params.set('client_id', this.appKey.trim());
+    params.set('client_secret', this.clientSecret.trim());
     params.set('code', code);
     params.set('redirect_uri', redirectUri);
     // Add the amc:api scope which is required for WebSocket connections
     params.set('scope', 'iam:read amc:api');
 
     try {
+      // Log params for debugging (excluding client_secret)
+      const codeParam = params.get('code');
+      console.log('Token request params:', {
+        grant_type: params.get('grant_type'),
+        client_id: params.get('client_id'),
+        code: codeParam ? codeParam.substring(0, 10) + '...' : 'N/A',
+        redirect_uri: params.get('redirect_uri'),
+        scope: params.get('scope'),
+      });
+      
       const response = await fetch(HUSQVARNA_API.OAUTH_TOKEN_URL, {
         method: 'POST',
         headers: {
@@ -575,6 +589,89 @@ export class HusqvarnaClient {
     } catch (error) {
       console.error("Error fetching work areas:", error);
       return [];
+    }
+  }
+  
+  /**
+   * Get WebSocket authentication token directly from Husqvarna API
+   * This is needed to connect to the WebSocket API for real-time updates
+   */
+  async getWebSocketAuthToken(additionalHeaders?: HeadersInit): Promise<{ token: string; wsProxyUrl?: string; apiKey?: string }> {
+    try {
+      console.log('Fetching WebSocket authentication token...');
+      const baseUrl = this.getBaseUrl();
+      
+      // Use proxy API to avoid CORS issues - use main websocket endpoint
+      const headers = {
+        ...this.getRequestHeaders(),
+        ...(additionalHeaders || {})
+      };
+      
+      const response = await fetch(`${baseUrl}/api/proxy/websocket`, {
+        method: 'GET',
+        headers,
+        credentials: 'include', // Include cookies for authentication
+      });
+      
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`Failed to get WebSocket token: ${response.status} ${response.statusText}`, errorBody);
+        throw new Error(`Failed to get WebSocket token: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (!data.token) {
+        throw new Error('Invalid WebSocket auth response: missing token');
+      }
+      
+      console.log('Successfully obtained WebSocket token');
+      return { token: data.token, wsProxyUrl: data.wsProxyUrl, apiKey: this.appKey };
+    } catch (error) {
+      console.error('Error getting WebSocket auth token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a mower's schedule
+   * @param mowerId The ID of the mower to update
+   * @param scheduleData Array of schedule tasks
+   */
+  async updateMowerSchedule(mowerId: string, scheduleData: any[]): Promise<void> {
+    try {
+      const baseUrl = this.getBaseUrl();
+      
+      // Prepare the schedule update payload in the format the API expects
+      const requestBody = {
+        data: {
+          type: 'UpdateCalendar',
+          attributes: {
+            tasks: scheduleData
+          }
+        }
+      };
+      
+      console.log(`Sending schedule update for mower ${mowerId}:`, JSON.stringify(requestBody, null, 2));
+      
+      // Use proxy API to avoid CORS issues
+      const response = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/calendar`, {
+        method: 'PUT',
+        headers: this.getRequestHeaders(),
+        credentials: 'include', // Include cookies for authentication
+        body: JSON.stringify(requestBody),
+      });
+      
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`🚫 Failed to update schedule: ${response.status} ${response.statusText}`, errorBody);
+        throw new Error(`Failed to update schedule: ${response.status} ${response.statusText}`);
+      }
+      
+      console.log('✅ Successfully updated mower schedule');
+    } catch (error) {
+      console.error(`❌ Error updating schedule for mower ${mowerId}:`, error);
+      throw error;
     }
   }
 } 

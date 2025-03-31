@@ -1,0 +1,489 @@
+[![Husqvarna Group developers](data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='UTF-8'?%3e%3csvg%20width='27px'%20height='34px'%20viewBox='0%200%2027%2034'%20version='1.1'%20xmlns='http://www.w3.org/2000/svg'%20xmlns:xlink='http://www.w3.org/1999/xlink'%3e%3ctitle%3eCrown%3c/title%3e%3cg%20id='Page-1'%20stroke='none'%20stroke-width='1'%20fill='none'%20fill-rule='evenodd'%3e%3cg%20id='Developer-Portal-V2-with-new-Logo'%20transform='translate(-24.000000,%20-27.000000)'%20fill='%233D3D3C'%20fill-rule='nonzero'%3e%3cg%20id='download-copy'%20transform='translate(24.000000,%2027.000000)'%3e%3cpath%20d='M13.4654813,0%20L13.778972,0.00514061083%20C14.9078634,0.0411248866%2015.819098,0.262171152%2016.1666991,0.342707388%20C15.8954403,2.19332729%2016.0302576,3.6738232%2016.1666991,4.10220744%20C16.4834384,5.15089205%2018.0005385,5.78147364%2019.2090208,5.78147364%20C19.64271,5.78147364%2020.0374159,5.70093741%2020.3216691,5.52787017%20C21.3725939,4.78590868%2021.2134121,2.53432114%2021.2134121,1.05039815%20C21.2134121,1.05039815%2022.7971086,1.46850116%2023.7749397,1.8506199%20C24.6731799,2.20189497%2026.0148551,2.90444512%2026.0148551,2.90444512%20C26.2585008,4.78590868%2026.0148551,7.54813023%2024.2606067,8.49057555%20C25.5811659,9.88710815%2026.0148551,11.5406713%2026.5817373,14.58734%20C27.0950174,17.3204314%2027.0138022,19.2310251%2026.9602002,20.8280415%20C26.7701566,22.9922387%2026.8513718,24.1608709%2026.2568765,26.1280113%20C25.5811659,28.3778853%2025.2400621,29.4145751%2023.8821438,30.9995968%20C21.5220299,33.7618184%2017.6431916,34%2014.8753773,34%20C14.3783403,34%2013.9170379,33.9931459%2013.5077132,33.9897188%20L12.5461252,33.9931459%20C9.78480815,33.9931459%205.75328527,33.8269328%203.18526042,30.9995968%20C1.76724291,29.4351376%201.35142105,28.3778853%200.651345961,26.1280113%20C0.164054718,24.1608709%200.164054718,22.9922387%200.0308617787,20.8280415%20C0.0211159538,20.2625743%200.00162430414,19.6559823%200,18.9859893%20L0,18.8728959%20C0.00162430414,17.6837012%200.068220774,16.2957363%200.354098303,14.5890535%20C0.922604753,11.5389578%201.35142105,9.88710815%202.67685323,8.48886201%20C0.920980449,7.54813023%200.649721657,4.78762222%200.920980449,2.90444512%20L0.985952614,2.87188791%20C1.2539628,2.73480496%202.31138479,2.20018143%203.04881888,1.90716662%20C4.09974366,1.49420421%205.8020144,1.05039815%205.8020144,1.05039815%20C5.8020144,2.53432114%205.53237991,4.78590868%206.69538167,5.52787017%20C6.97151338,5.69922387%207.35972207,5.78147364%207.78691406,5.78147364%20C8.97752899,5.78147364%2010.4848832,5.15089205%2010.8243628,4.10220744%20C10.9575557,3.6738232%2011.0127821,2.19161375%2010.8243628,0.342707388%20C11.2012014,0.253603467%2012.09132,0%2013.4654813,0%20Z%20M14.4741742,8.71847596%20L12.5899814,8.71847596%20C10.1372822,8.72190303%209.14645663,8.76302792%207.74630645,9.1468602%20C7.20703748,9.34563048%206.2357036,9.63007761%205.53400421,10.8261264%20C4.23943381,13.1342607%204.23943381,16.8646306%204.23943381,18.9757081%20L4.23943381,19.3475456%20C4.24430672,21.566576%204.3125275,25.6019554%205.53400421,27.8072775%20C6.23732791,28.9759097%207.20703748,29.2603568%207.74630645,29.4608406%20C9.31051134,29.9166415%2010.3646847,29.9166415%2013.5207077,29.9166415%20C16.598764,29.9166415%2017.6496888,29.9166415%2019.2431312,29.4608406%20C19.7807758,29.2603568%2020.7261209,28.9759097%2021.3709696,27.8072775%20C22.777617,25.4717266%2022.777617,21.2838424%2022.777617,19.2310251%20L22.777617,18.8403387%20C22.7727441,16.6572926%2022.6964018,12.9971777%2021.3725939,10.8278399%20C20.7261209,9.62836408%2019.7807758,9.34563048%2019.2447555,9.14514666%20C17.826738,8.76474146%2016.839161,8.72361657%2014.4741742,8.71847596%20Z%20M10.8341086,11.2305211%20L10.8341086,16.1106743%20C10.8389815,16.9434533%2010.9315669,16.9434533%2013.5207077,16.9434533%20L13.8260769,16.9434533%20C15.968534,16.9434533%2016.11797,16.9126096%2016.1277158,16.211773%20L16.1277158,11.2305211%20L19.8522452,11.2305211%20L19.8522452,27.1321439%20L16.1293401,27.1321439%20L16.1293401,21.1895978%20C16.11797,20.5401673%2015.9815285,20.4853341%2014.1054572,20.4801935%20L12.9245881,20.4801935%20C10.8259871,20.4853341%2010.8341086,20.5521621%2010.8341086,21.3917952%20L10.8341086,27.1321439%20L7.16642988,27.1321439%20L7.16642988,11.2305211%20L10.8341086,11.2305211%20Z'%20id='Shape'%3e%3c/path%3e%3c/g%3e%3c/g%3e%3c/g%3e%3c/svg%3e)![Husqvarna Group developers](https://developer.husqvarnagroup.cloud/assets/husqvarna-developer-logo-CxG7Npke.svg)](https://developer.husqvarnagroup.cloud/)
+
+[Get started](https://developer.husqvarnagroup.cloud/docs/get-started) [Documentation](https://developer.husqvarnagroup.cloud/docs/api) [APIs](https://developer.husqvarnagroup.cloud/apis) [News](https://developer.husqvarnagroup.cloud/news)
+
+- [Home](https://developer.husqvarnagroup.cloud/)
+
+- [APIs](https://developer.husqvarnagroup.cloud/apis)
+
+- [Automower Connect API](https://developer.husqvarnagroup.cloud/apis/automower-connect-api)
+
+# Automower Connect API
+
+This API allows you to control and obtain information about your Automower®.
+
+[General](https://developer.husqvarnagroup.cloud/apis/automower-connect-api) [OpenAPI](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=openapi) [README](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=readme) [Releases](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=releases) [Status description and error codes](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=status%20description%20and%20error%20codes) [WebSocket](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=websocket) [WebSocket API](https://developer.husqvarnagroup.cloud/apis/automower-connect-api?tab=websocket%20api)
+
+## Automower® Connect API  ```  1.0.0  ```    ``` OAS 3.0 ```
+
+[https://docs.developer.husqvarnagroup.cloud/automower-connect-api/swagger.yml](https://docs.developer.husqvarnagroup.cloud/automower-connect-api/swagger.yml)
+
+This API allows you to control and obtain information about Automower®.
+
+[Husqvarna Smart Home - Website](https://www.husqvarna.com/uk/lawn-garden/smart-home-integration/)
+
+MIT
+
+Servers
+
+https://api.amc.husqvarna.dev/v1 - Live Server
+
+Authorize
+
+### Mower   REST API that can supply information and status about mowers paired to a user. You need to pair the mower in Automower® Connect app
+
+GET
+/mowers
+
+List data for all mowers linked to a user.
+
+GET
+/mowers/{id}
+
+Get data for a mower linked to a user.
+
+GET
+/mowers/{id}/messages
+
+Get last messages for a mower.
+
+GET
+/mowers/{id}/stayOutZones
+
+Get all stay out zones for a mower linked to a user.
+
+GET
+/mowers/{id}/workAreas
+
+Get all detailed work areas for a mower linked to a user.
+
+GET
+/mowers/{id}/workAreas/{workAreaId}
+
+Get detailed data for a work area for a mower linked to a user.
+
+### Actions   REST API that enables a user to control a paired mower.
+
+POST
+/mowers/{id}/actions
+
+Accepts actions to control a mower linked to a user.
+
+POST
+/mowers/{id}/calendar
+
+Update the calendar on the mower.
+
+POST
+/mowers/{id}/errors/confirm
+
+Confirm current error.
+
+POST
+/mowers/{id}/settings
+
+Update the settings on the mower.
+
+POST
+/mowers/{id}/statistics/resetCuttingBladeUsageTime
+
+Reset the cutting blade usage time.
+
+PATCH
+/mowers/{id}/stayOutZones/{stayOutId}
+
+Enable or disable the stay-out zone.
+
+PATCH
+/mowers/{id}/workAreas/{workAreaId}
+
+Update the the work area on the mower.
+
+POST
+/mowers/{id}/workAreas/{workAreaId}/calendar
+
+Update the calendar for a work area on the mower.
+
+#### Schemas
+
+JsonApiDataDocument
+
+JsonApiDataListDocument
+
+JsonApiData
+
+JsonApiDataDocumentMessages
+
+JsonApiDataMessages
+
+JsonApiDataDocumentStayOutZones
+
+JsonApiDataStayOutZones
+
+JsonApiDataDocumentWorkArea
+
+JsonApiDataListDocumentWorkAreas
+
+JsonApiDataWorkArea
+
+JsonApiDataDocumentCommandResult
+
+JsonApiDataDocumentListCommandResult
+
+JsonApiDataCommandResult
+
+JsonApiErrorDocument
+
+JsonApiError
+
+MowerData
+
+System
+
+Battery
+
+Capabilities
+
+MowerApp
+
+Calendar
+
+CalendarTask
+
+CalendarWorkArea
+
+CalendarTaskWorkArea
+
+Planner
+
+Metadata
+
+WorkAreas
+
+WorkArea
+
+Positions
+
+Position
+
+Settings
+
+CuttingHeight
+
+Headlight
+
+Timer
+
+Messages
+
+Message
+
+Statistics
+
+StayOutZones
+
+StayOutZone
+
+WorkAreaData
+
+JsonApiAction
+
+Start
+
+StartInWorkArea
+
+ResumeSchedule
+
+Pause
+
+Park
+
+ParkUntilNextSchedule
+
+ParkUntilFurtherNotice
+
+DurationAttributes
+
+WorkAreaAttributes
+
+## Account - undefined undefined
+
+Developer Portal uses your Husqvarna Group account, which is shared by other Husqvarna and GARDENA services, including Husqvarna Automower® Connect and GARDENA smart system.
+
+### Account settings
+
+Click the button below to log into your Husqvarna Group account, where you can change your profile information, email address, and other settings. The changes will apply in every service that you use with your account.
+
+To Husqvarna Group account
+
+### Delete Developer Portal data
+
+Remove all Developer Portal data associated with your Husqvarna Group account.
+
+Delete data
+
+## Terms & Conditions
+
+# Welcome
+
+Thank you for joining our Developer Portal. We are delighted to empower your innovative ideas. We therefore make available our API Toolbox (as defined below) and certain content and functionality free of charge\*. However, we still request you to comply with certain terms & conditions. For convenience, we have summarized the main conditions below (Terms of Use Summary) however your use of the portal is subject to the full General Developer Terms of Use that follow.
+
+## Terms of Use Summary
+
+- Please use our services safely and in good faith and without harming Husqvarna AB, its subsidiaries or others;
+- Respect the provided content, our brands and capacity;
+- Use of the APIs is at your own risk. We do not accept warranties/liabilities to provide you this service;
+- Sometimes the service may not be fully available, because we may have to maintain and modify the portal;
+- We may contact you to request additional information about you or your application for operational, security and promotional purposes, while respecting your privacy and your intellectual property rights in your application;
+- If you do not comply with our Terms of Use, we may be entitled to block your access or terminate your registration;
+- If not explicitly stated, APIs are provided for personal, non-commercial use. For commercial use other conditions may apply.
+
+For a full overview, please read our complete **General Developer Terms of Use** below\*\*
+
+\\* for a limited amount APIs we still may require a charge, please be referred to their billing conditions. There are no such services as of May 15, 2019.
+
+\\*\\* the General Developer Terms of Use prevail in the event of any conflict with the summary above.
+
+
+## General Developer Terms of Use
+
+This Developer Portal, and any sub-sites thereof, (together the “Portal”) is published and maintained by Husqvarna AB or its subsidiaries or branch offices (together HUSQVARNA or “we”). By using the Portal you agree to the terms and conditions set out below (“Terms of Use”).
+
+HUSQVARNA allows you to use the Portal, certain HUSQVARNA application programming interfaces also known as APIs (”APIs”), API keys, documentation and other relevant materials (together the “API Toolbox”) and accompanying support and maintenance services (”API Services”) for use in your application, website or other software feature as registered (the ”Application”),in accordance with these Terms of Use .
+
+Please note that for certain APIs, we may apply different or additional terms & conditions because of their special nature. For some APIs we may also request a charge, as specified in our general API pricing conditions. Where this document refers to Terms of Use, this must also be understood as including the additional terms & conditions as agreed for specific APIs used via the Portal.
+
+### 1\. Registration and acceptance
+
+#### 1.1 Registration
+
+For using the API Toolbox, you first need to register and accept the Terms of Use. You acknowledge all your submitted information is accurate and, if you are registering as a natural person, that you are 18 years or older. If you register or work on behalf of a company, you confirm that you are legally authorized to bind your company to these Terms of Use.
+
+#### 1.2 Additional registration information
+
+For the use of certain APIs, we may require you to provide additional information or (legally required) certificates, or to agree with additional terms & conditions for specific APIs.
+
+### 2\. Use of API keys
+
+After registration of an Application, you receive an API key and a corresponding secret code (the ”API keys”) for each Application. You shall keep the API keys secret from others, use them with due care and only for your Application. You agree never to rent, sell, sublicense, encumber, publish or distribute the API keys to any third parties.
+
+### 3\. Use of the API Toolbox
+
+#### 3.1 License API Toolbox
+
+Unless expressly agreed otherwise by HUSQVARNA, you will receive a non-exclusive, worldwide, personal, revocable, non-commercial, non-transferable, non-assignable, non-sublicensable, royalty free license to use the API Toolbox in order to obtain a software-to-software interface for your Application subject to the conditions and limitations contained in these Terms of Use.
+
+#### 3.2 Technical requirements
+
+You may only use the API Toolbox if you fulfil the technical requirements specified for the applicable API. You shall make reasonable efforts to avoid any technical problems, unauthorized access and security incidents, including the use of updated virus scanners.
+
+#### 3.3 Non-permitted use
+
+While using the API Toolbox, you shall not:
+
+01. violate any law, or infringe any intellectual property rights of HUSQVARNA or others;
+02. use the API Toolbox in a way that causes HUSQVARNA to be in violation of any law or to infringe or be accused or infringing any third party intellectual property rights;
+03. negatively affect HUSQVARNA’s business activities or reputation;
+04. hinder or damage the accessibility, functioning or security of the Portal, API gateway(s), or the API Toolbox;
+05. transfer viruses or any other malicious code;
+06. use the API Toolbox for commercial use without prior written approval from HUSQVARNA;
+07. make use of or contribute to the infringement of any third party intellectual property rights without explicit permission from concerned party;
+08. perform any security test (e.g. pen-testing), performance tests (e.g. load-testing), stress tests or similar tests on the API Toolbox or HUSQVARNA’s API-facilities;
+09. copy, adapt, reverse engineer, decompile, disassemble, modify, or make error corrections to the API Toolbox in whole or in part except to the extent necessary in order to obtain a software-to-software interface for your Application in accordance with these Terms of Use;
+10. disclose or share the APIs or API keys to or with any third parties. You shall keep them confidential and use reasonable endeavours to prevent any unauthorized disclosure.
+
+#### 3.4 No request for client credentials
+
+You acknowledge that a user of your Application (”End User”) may be a customer of HUSQVARNA, who is bound by terms and conditions of HUSQVARNA. YOU WILL NEVER REQUEST THE PASSWORDS, PIN CODES, RESPONSE CODES OR OTHER CREDENTIALS FROM AN END USER.
+
+#### 3.5 Additional measures
+
+For certain APIs, we may request you to take additional measures regarding your use of the API Toolbox towards the End User, like the addition of disclaimers or privacy policies. You will comply with those requests.
+
+#### 3.6 Modification
+
+We are entitled at any time to modify or amend the API Toolbox, the Portal and our API Services. Significant modifications relevant for you will be communicated on the website [https://developer.husqvarnagroup.cloud/](https://developer.husqvarnagroup.cloud/) or by email.
+
+#### 3.7 Limit on API calls
+
+We may limit your amount of API calls because of commercial, technical and/or security reasons.
+
+#### 3.8 Monitoring
+
+Subject to [Husqvarna Group’s External Privacy Notice](https://privacyportal.husqvarnagroup.com/int/privacy-notice/), we may monitor your use of APIs for the following purposes:
+
+1. to prevent fraud;
+2. to avoid congestion problems;
+3. to perform, evaluate and improve our APIs and API Services;
+4. to check whether your Application satisfies the requirements as imposed by these Terms of Use;
+5. if we have reasonable suspicion of fraud, misuse or any other violation of the law regarding your use of the API Toolbox.
+
+#### 3.9 Availability
+
+We will make reasonable efforts to ensure the availability of the API Toolbox. However, we are never under an obligation to provide you with a certain result or warrant availability of the API Toolbox for a certain period of time.
+
+#### 3.10 Technical support
+
+The API Toolbox is provided for self-service. We assume you have developer skills and are able to follow the provided documentation. We are not under an obligation to provide you with a certain result or to reach certain service levels, unless explicitly indicated otherwise.
+
+#### 3.11 Maintenance
+
+We will regularly need to maintain and update the Portal. We shall use reasonable endeavours to pre-announce such maintenance and/or updates on our website or by email in advance. This means the Portal, the API Toolbox and/or the API Services may not be available for a certain limited period of time. In no circumstances will you be entitled to any compensation or damages for unavailability of the Portal, the API Toolbox or the API Services during maintenance activities.
+
+### 4\. Content & Communication
+
+#### 4.1 License to the Content
+
+Unless stated otherwise, You will receive a non-exclusive, worldwide, personal, revocable, non-commercial, non-transferable, non-assignable, non-sublicensable, royalty free license to any data, texts, images, drawings, brands, functionality or other information, materials or content you receive through the APIs (the ”Content”) for your Application subject to the conditions and limitations contained in these Terms of Use.
+
+#### 4.2 Content Accuracy
+
+We take reasonable efforts to ensure the accuracy and integrity of our information, documentation and related materials provided on the Portal, but misprints, typing errors, miscalculations or other errors may appear and we do not accept any liability or responsibility in such cases.
+
+#### 4.3 Open source
+
+Certain aspects of the API Toolbox may contain open source materials which are governed by applicable open source license conditions. You agree to comply with such open source license conditions.
+
+#### 4.4 No modification of the Content
+
+You are not allowed to modify any Content without our prior written consent, save to the extent permitted by mandatory law.
+
+#### 4.5 Acknowledgement of Intellectual Property Rights
+
+You acknowledge that all intellectual property rights (including, but not limited to, copyright, patents, know-how, confidential information, database rights, and rights in trademarks and designs (whether registered or unregistered)) in the Portal, API Toolbox and Content are vested in HUSQVARNA or its licensors and you shall have no rights in or to the Portal, API Toolbox or Content other than the right
+to use it in accordance with these Terms of Use. All goodwill and intellectual property rights arising through the use of such intellectual property rights shall inure to HUSQVARNA.
+
+#### 4.6 No bulk storage/mass downloads
+
+You will never store the Content for commercial, non-technical purposes, including without limitation mass downloads of any Content, the creation of a database, big data or analytical purposes.
+
+#### 4.6 No other recipients
+
+You will never disclose the Content to others than to the End User who requested the Content.
+
+#### 4.8 Feedback
+
+If you communicate to us any comments, ideas, suggestions or other feedback (”Feedback”) regarding the API Toolbox, we are entitled to use your Feedback free of charge, worldwide and without any other restriction in order to improve our API Toolbox, Portal or API Services.
+
+#### 4.9 Third party sites
+
+For your convenience, the Portal may include links to sites on the Internet that are owned, published and maintained by third parties. HUSQVARNA does not undertake to monitor or review such third party site content nor is HUSQVARNA responsible for the accuracy or reliability of any such third party web sites.
+
+### 5 Your Application
+
+#### 5.1 Ownership
+
+As between you and HUSQVARNA you will own any intellectual property rights in your Application.
+
+#### 5.2 Additional requests
+
+We may request you to provide additional information and/or images about your Application for promotional, technical or security purposes. You will comply with such requests.
+
+#### 5.3 Access/Testing
+
+We are entitled to get access to and/or test your Application, if this is necessary because of technical, security or compliance reasons.
+
+#### 5.4 Adaptation
+
+We may require you to reasonably adapt the functionality of your Application in order to safeguard the continuity of the services to the End User within a reasonable period of time.
+
+### 6\. Termination
+
+#### 6.1 Termination
+
+We are entitled to terminate your registration and access to the Portal and the Terms of Use without giving any reasons, after a written notification with a termination period of 30 days.
+
+#### 6.2 No active use
+
+If you have not logged on to, or otherwise used your account or API-keys actively during a period of 18 months, we will deactivate or terminate your registration with immediate effect, without notification.
+
+#### 6.3 Termination for cause
+
+We are entitled to suspend or terminate your registration immediately, without notification, if you breach these Terms of Use or the law;
+
+#### 6.4 No damages
+
+We are not responsible for any compensation or any damages incurred or to be incurred in connection with any termination in accordance with these Terms of Use.
+
+#### 6.5 Consequences of termination
+
+On termination for any reason, all rights granted to you under these Terms of Use shall cease and you shall cease all activities authorized by these Terms of Use.
+
+### 7\. Liability/warranties
+
+#### 7.1 Responsibility
+
+You acknowledge that the use of the API Toolbox is at your own risk. You will be solely and fully responsible for the development, functioning, maintenance and service of your Application.
+
+#### 7.2 Exclusion of implied warranties
+
+Although care has been taken to ensure the accuracy of the information on the Portal, HUSQVARNA assumes no responsibility therefor. THE MATERIALS MAY CONTAIN INACCURACIES AND TYPOGRAPHICAL ERRORS. HUSQVARNA DOES NOT WARRANT THE ACCURACY OR COMPLETENESS OF THE MATERIALS OR THE RELIABILITY OF ANY ADVICE, OPINION, STATEMENT OR OTHER INFORMATION DISPLAYED OR DISTRIBUTED THROUGH THE API TOOLBOX. YOU ACKNOWLEDGE THAT ANY RELIANCE ON ANY SUCH OPINION, ADVICE, STATEMENT, MEMORANDUM, OR INFORMATION SHALL BE AT YOUR SOLE RISK. ALL CONTENT AND APIS ARE PROVIDED "AS IS" AND "AS AVAILABLE". HUSQVARNA EXPRESSLY DISCLAIMS ANY REPRESENTATIONS OR WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, OR AS TO THE OPERATION OF THIS PORTAL, THE API TOOLBOX, THE CONTENT OR APIS. HUSQVARNA DOES NOT WARRANT OR MAKE ANY REPRESENTATIONS AS TO THE SECURITY OF THE API TOOLBOX. YOU ACKNOWLEDGE ANY INFORMATION SENT MAY BE INTERCEPTED. HUSQVARNA DOES NOT WARRANT THAT THE WEBSITE OR THE SERVERS WHICH MAKE THIS PORTAL AVAILABLE OR ELECTRONIC COMMUNICATIONS SENT BY HUSQVARNA ARE FREE FROM VIRUSES OR ANY OTHER HARMFUL ELEMENTS. ALL SUCH REPRESENTATIONS, WARRANTIES AND CONDITIONS ARE EXCLUDED EXCEPT TO THE EXTENT THAT LAW PROHIBITS THEIR EXCLUSION.
+
+#### 7.3 Limitation of Liability
+
+TO THE FULLEST EXTENT PERMITTED BY LAW, IN NO EVENT SHALL HUSQVARNA BE LIABLE FOR ANY DIRECT, INDIRECT, CONSEQUENTIAL, PUNITIVE, SPECIAL OR INCIDENTAL DAMAGES (INCLUDING, WITHOUT LIMITATION, DAMAGES FOR LOSS OF BUSINESS, CONTRACT, REVENUE, DATA,
+INFORMATION OR BUSINESS INTERRUPTION) RESULTING FROM, ARISING OUT OF OR IN CONNECTION WITH THE USE OF, OR INABILITY TO USE THIS PORTAL, THE API TOOLBOX, THE APIS OR THE CONTENT OR OUT OF OR IN CONNECTION WITH THESE TERMS OF USE, EVEN IF HUSQVARNA HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. IN ADDITION TO THE TERMS SET FORTH HEREIN, IN NO EVENT SHALL HUSQVARNA BE LIABLE FOR ANY ERRORS, INACCURACIES, OMISSIONS OR OTHER DEFECTS OR UNTIMELINESS OR UNAUTHENTICITY OF ANY INFORMATION OR API CONTAINED IN THIS PORTAL OR THE API TOOLBOX.
+
+#### 7.4 Your indemnification
+
+You release, indemnify and hold harmless HUSQVARNA from and against any and all liabilities, fines, costs and expenses (losses) arising out of or resulting from any third party claim, suit, action or proceeding related to or arising out of or resulting from your (a) negligence, gross negligence, or willful misconduct; or (b) breach of any representation, warranty, covenant or obligation under these Terms of Use (each an “Action”). You shall promptly notify HUSQVARNA in writing after you become aware of any Action and cooperate with HUSQVARNA at your sole cost and expense. HUSQVARNA shall take control of the defense and investigation of any Action and shall employ counsel of our choosing to handle and defend the Action at your sole cost and expense.
+
+### 8\. Personal data
+
+#### 8.1 Processing of your personal data
+
+Husqvarna processes your personal data, such as name, email address and login credentials, for the purpose of enabling your use of Developer Portal. The processing is necessary for our provision of the service to you. We may also process your personal data to monitor your use of the APIs. Such processing is necessary for our legitimate interests to prevent fraud; avoid congestions problems; perform, evaluate and improve our APIs and API Services; to check whether your Application satisfies the requirements as imposed by these Terms of Use; and if we have reasonable suspicion of fraud, misuse or any other violation of the law regarding your use of the API Toolbox. For further information on how we process your personal data, who we may share it with and how to contact us please read [Husqvarna Group’s External Privacy Notice](https://privacyportal.husqvarnagroup.com/int/privacy-notice/).
+
+#### 8.2 Compliance with privacy laws
+
+Subject to Husqvarna’s prior written approval, any use of API Toolbox for commercial use shall comply with all applicable privacy laws, including but not limited to the General Data Protection Regulation. Each party shall be considered an independent controller for its processing of personal data within the scope of API Toolbox. Husqvarna is responsible for ensuring that the sharing of relevant personal data with you is lawful under applicable privacy laws. You are responsible for ensuring that you have a lawful basis for requesting access to, and subsequently processing such personal data. For the avoidance of doubt, Husqvarna shall not be liable for the processing of personal data being performed by you. You confirm that you will process personal data in compliance with applicable laws.
+In the event you are established in a third country which is not deemed by the European Commission to ensure an adequate level of data protection, Husqvarna and you shall complete and execute, upon your request, a data transfer agreement in the form of Controller-to-Controller Standard Contractual Clauses for data transfers as issued by the European Commission from time to time. Such Standard Contractual Clauses shall be used in their entirety and without amendment.
+
+### 9\. Miscellaneous
+
+#### 9.1 No partnership
+
+Nothing in these Terms of Use will be construed as creating a partnership, franchise, agency, fiduciary, employment or joint venture relationship of any kind between the parties. Neither you nor we will have the authority to bind the other party or to contract in the name of or create a liability against the other party in performing its obligations or exercising its rights under these Terms of Use.
+
+#### 9.2 Assignment
+
+You may not assign any of your rights or obligations under these Terms of Use without our prior written approval. We may assign any of our rights or obligations without your approval to any company within our corporate group of companies, or, if outside our group, by providing notice to you by email or posting a notice on our Portal.
+
+#### 9.3 Amendments to Terms of Use
+
+We may, in our sole discretion, amend or modify these Terms of Use from time to time, which we will announce on our Portal or via email. If you do not agree with the amended Terms of Use, you should stop using the Portal and the API Toolbox. If you continue using the Portal or the API Toolbox, you will be deemed to have accepted the amended Terms of Use.
+
+#### 9.4 Severability
+
+The invalidity, illegality or lack of unenforceability of any provision of these Terms of Use will not affect the validity, legality or enforceability of the remaining provisions of the Terms of Use. The affected provision will be deemed modified to the minimum extent necessary to make it valid, legal and enforceable. If such modification is not possible, the relevant provision or part-provision will be deemed deleted. Any modification to or deletion of a provision or a part-provision under this clause will not affect the validity and enforceability of the rest of this agreement.
+
+### 10\. Jurisdiction Statement
+
+#### 10.1 Your responsibility for compliance with local laws
+
+This Portal is controlled, operated and administered by HUSQVARNA from its offices in Sweden. HUSQVARNA makes no representation that materials at this Portal are appropriate or available for use at other locations outside of Sweden and access to them from territories where their contents are illegal is prohibited. If you access this Portal from locations outside of Sweden, you are responsible for compliance with all local laws.
+
+#### 10.2 Governing law
+
+All issues and questions concerning the construction, validity, interpretation and enforceability of these Terms of Use, or the rights and obligations of you and HUSQVARNA in connection with the Portal, shall be interpreted and enforced according to and under the laws of Sweden without regard to any choice of law provisions thereof.
+
+#### 10.3 Dispute resolution
+
+Any dispute arising out of or related in any manner to the Portal or these Terms of Use shall be referred to and finally determined by arbitration in accordance with the Rules of Arbitration Institute
+of the Stockholm Chamber of Commerce. The place of arbitration shall be in Stockholm, Sweden and the language of the proceeding shall be English unless the Parties agree otherwise.
+
+#### 10.4 Injunctive relief
+
+Notwithstanding the foregoing section 10.3, HUSQVARNA shall always be entitled to initiate proceedings in any court having jurisdiction for injunctive relief based on claims of unauthorized use of HUSQVARNA’s trademarks or any other intellectual property rights or in any other circumstances where HUSQVARNA reasonably believes that such equitable relief is needed to protect its interests or otherwise prevent harm or to preserve the status quo.
+
+[Get started](https://developer.husqvarnagroup.cloud/docs/get-started)
+
+[Documentation](https://developer.husqvarnagroup.cloud/docs/api)
+
+[APIs](https://developer.husqvarnagroup.cloud/apis)
+
+[News](https://developer.husqvarnagroup.cloud/news)
+
+This site uses cookies. To see how cookies are used, please review our cookie notice. If you agree to our use of cookies, please continue to use our site. [Cookie policy](https://www.husqvarnagroup.com/en/cookie-policy)
+
+Got it!

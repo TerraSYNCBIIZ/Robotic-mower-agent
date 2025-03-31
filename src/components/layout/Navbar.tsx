@@ -18,12 +18,48 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ConnectionStatusIcons } from "@/components/dashboard/ConnectionStatusIcons";
+import { WebSocketStatus, HusqvarnaWebSocketManager } from "@/lib/husqvarna/websocket";
+import { useMowerData } from "@/contexts/MowerDataContext";
+import { WebSocketToggleButton } from "@/components/dashboard/WebSocketToggleButton";
+import { getMowerDataService } from "@/lib/husqvarna/mower-data-service-provider";
 
 export function Navbar() {
   const pathname = usePathname();
   const { setTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
+  const { dataService } = useMowerData();
+  const [websocketStatus, setWebsocketStatus] = useState<WebSocketStatus>(WebSocketStatus.DISCONNECTED);
+  const [apiConnected, setApiConnected] = useState<boolean>(false);
+  
+  // Monitor websocket status
+  useEffect(() => {
+    if (!dataService) return;
+    
+    // Set initial status directly from the WebSocket manager singleton
+    const wsManager = HusqvarnaWebSocketManager.getInstance();
+    const currentStatus = wsManager.getStatus();
+    setWebsocketStatus(currentStatus);
+    
+    setApiConnected(true); // Assume API is connected if we have a data service
+    
+    // Listen for global WebSocket status changes
+    const handleWsStatusChange = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      setWebsocketStatus(detail.status);
+    };
+    
+    // Add event listener
+    window.addEventListener('websocket-status-change', handleWsStatusChange);
+    
+    // No need for polling with the global event system and singleton WebSocketManager
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('websocket-status-change', handleWsStatusChange);
+    };
+  }, [dataService]);
   
   // This useEffect ensures hydration is complete before rendering theme-dependent elements
   useEffect(() => {
@@ -77,22 +113,28 @@ export function Navbar() {
           ))}
         </nav>
         
-        <div className="ml-auto flex items-center gap-4">
-          {/* Auth status indicator */}
-          <AuthStatus />
+        <div className="ml-auto flex items-center gap-2">
+          {/* Connection status indicators - replacing AuthStatus */}
+          {isAuthenticated && (
+            <>
+              <ConnectionStatusIcons 
+                apiConnected={apiConnected}
+                websocketStatus={websocketStatus}
+              />
+              <WebSocketToggleButton />
+            </>
+          )}
           
           {/* Logout button (only shown when authenticated) */}
           {isAuthenticated && (
             <Button
               variant="ghost"
               size="sm"
-              asChild
-              className="gap-1 text-muted-foreground hover:text-foreground"
+              onClick={() => logout()}
+              className="gap-1 text-muted-foreground hover:text-foreground ml-2"
             >
-              <Link href="/logout">
-                <LogOut className="h-4 w-4" />
-                <span className="hidden md:inline-block">Logout</span>
-              </Link>
+              <LogOut className="h-4 w-4" />
+              <span className="hidden md:inline-block">Logout</span>
             </Button>
           )}
           

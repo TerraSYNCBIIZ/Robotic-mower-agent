@@ -16,7 +16,7 @@ export interface MowerCardProps {
   batteryLevel: number;
   areaComplete: string;
   nextMaintenance: number;
-  errorMessage?: string;
+  errorMessage?: string | null;
   imageSrc?: string;
   className?: string;
   id?: string;

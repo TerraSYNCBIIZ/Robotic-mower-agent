@@ -16,7 +16,7 @@ interface MowerLocation {
   direction: number; // 0-359 degrees
   batteryLevel: number;
   areaComplete?: string;
-  status: "mowing" | "charging" | "idle" | "error" | "offline" | "returning" | "parked";
+  status: "mowing" | "charging" | "idle" | "error" | "offline" | "returning" | "parked" | "online" | "paused";
   zones?: {
     name: string;
     color: string;
@@ -77,6 +77,7 @@ export function GoogleMapView({
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markerRefs = useRef<{ [key: string]: EnhancedMarker }>({});
   const zonePolygonRefs = useRef<ZonePolygon[]>([]);
+  const hasFitBoundsRef = useRef<boolean>(false); // Track if we've already fit to bounds
 
   // Check if we're displaying a single mower view and adjust zoom if needed
   const effectiveZoom = mowers.length === 1 ? Math.max(zoom, 18) : zoom;
@@ -293,7 +294,8 @@ export function GoogleMapView({
         console.log("Google Maps script loaded, DOM is ready, initializing map...");
 
         const mapOptions: google.maps.MapOptions = {
-          center,
+          // Only use the default center if there are no mowers
+          center: mowers.length === 0 ? center : undefined,
           zoom: effectiveZoom,
           mapTypeId: mapType,
           disableDefaultUI: true,
@@ -419,7 +421,7 @@ export function GoogleMapView({
         google.maps.event.clearInstanceListeners(mapInstanceRef.current);
       }
     };
-  }, [center, effectiveZoom, viewMode, darkMode, mapType]);
+  }, [effectiveZoom, viewMode, darkMode, mapType]);
 
   // Helper function to render zones
   const renderZones = useCallback((mower: MowerLocation) => {
@@ -551,17 +553,22 @@ export function GoogleMapView({
     // Don't proceed if there are no mowers
     if (mowers.length === 0) return;
 
-    // If there's only one mower, center the map on it
-    if (mowers.length === 1) {
-      const singleMower = mowers[0];
-      mapInstanceRef.current.setCenter({ lat: singleMower.lat, lng: singleMower.lng });
-      mapInstanceRef.current.setZoom(effectiveZoom); // Use the provided zoom level
-    }
-
-    // Calculate bounds for multiple mowers
+    // Calculate bounds for all mowers and zones
     const bounds = new google.maps.LatLngBounds();
     for (const mower of mowers) {
+      // Add mower position to bounds
       bounds.extend({ lat: mower.lat, lng: mower.lng });
+      
+      // Add zone boundaries to bounds if they exist
+      if (mower.zones?.length) {
+        for (const zone of mower.zones) {
+          if (zone.boundaries?.length) {
+            for (const point of zone.boundaries) {
+              bounds.extend(point);
+            }
+          }
+        }
+      }
       
       // Draw zones for this mower if they exist
       if (showZones && mower.zones?.length) {
@@ -597,6 +604,26 @@ export function GoogleMapView({
           center.lng() - 0.001
         )
       );
+    }
+
+    // Fit map to the bounds with padding
+    mapInstanceRef.current.fitBounds(bounds, 50); // 50px padding
+    hasFitBoundsRef.current = true; // Mark that we've fit bounds
+
+    // For single mower, ensure appropriate zoom level
+    if (mowers.length === 1) {
+      // Set a timeout to let the fitBounds settle first
+      setTimeout(() => {
+        if (mapInstanceRef.current) {
+          // Get current zoom after fitBounds
+          const currentZoom = mapInstanceRef.current.getZoom() || 0;
+          
+          // If the zoom is too far out, set a minimum zoom level for better visibility
+          if (currentZoom < 18) {
+            mapInstanceRef.current.setZoom(Math.max(18, currentZoom));
+          }
+        }
+      }, 100);
     }
 
     // Add new markers
@@ -911,7 +938,7 @@ export function GoogleMapView({
     };
   }, [mowers, mapLoaded, onMowerSelect, effectiveZoom, showZones, renderZones]);
 
-  // Helper function to get marker color based on status
+  // Helper function to get color based on mower status
   const getStatusColor = (status: MowerLocation["status"]): string => {
     switch (status) {
       case "mowing":
@@ -919,17 +946,21 @@ export function GoogleMapView({
       case "charging":
         return "#3b82f6"; // blue-500
       case "idle":
-        return "#9ca3af"; // gray-400
+        return "#6366f1"; // indigo-500
+      case "offline":
+        return "#6b7280"; // gray-500
       case "error":
         return "#ef4444"; // red-500
-      case "offline":
-        return "#4b5563"; // gray-600
       case "returning":
         return "#f59e0b"; // amber-500
       case "parked":
         return "#10b981"; // emerald-500
+      case "online":
+        return "#10b981"; // emerald-500
+      case "paused":
+        return "#f59e0b"; // amber-500
       default:
-        return "#9ca3af"; // gray-400
+        return "#6b7280"; // gray-500
     }
   };
 
