@@ -1,0 +1,555 @@
+/*
+Robotic-mower-agent/src/styles/calendar-styles.css
+FullCalendar Styles with Dark Theme Support
+*/
+
+/* === Base Calendar Variables & Styles === */
+.fc {
+  /* Base styles for the calendar container */
+  --fc-border-color: var(--border, #e2e8f0);
+  --fc-strong-border-color: rgba(0, 0, 0, 0.2);  /* New darker border for better contrast */
+  --fc-page-bg-color: var(--background, #ffffff);
+  --fc-neutral-bg-color: var(--muted, #f1f5f9);
+  --fc-list-event-hover-bg-color: var(--accent, #f8fafc);
+  --fc-highlight-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.3);
+  --fc-header-bg-color: var(--card, #f8fafc);
+  --fc-axis-bg-color: var(--muted, #f1f5f9);
+  --fc-day-bg-color: transparent;
+  --fc-day-alt-bg-color: rgba(0, 0, 0, 0.02); /* Subtle alternating day color */
+
+  --fc-time-column-width: 60px;
+  font-size: 0.875rem;
+  color: var(--foreground, #0f172a);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* === General Layout & Structure === */
+.fc table {
+  border-collapse: collapse;
+}
+
+.fc-theme-standard td,
+.fc-theme-standard th {
+  border: 1px solid var(--fc-border-color);
+}
+
+.fc-scrollgrid {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 2px solid var(--fc-strong-border-color); /* Thicker outer border */
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-color: var(--fc-page-bg-color);
+}
+
+/* === Time Axis (Left Column) === */
+.fc .fc-timegrid-axis-frame,
+.fc .fc-timegrid-slots td:first-child,
+.fc .fc-col-header thead tr th:first-child {
+  background-color: var(--fc-axis-bg-color);
+  width: var(--fc-time-column-width);
+  min-width: var(--fc-time-column-width);
+  max-width: var(--fc-time-column-width);
+  border-right: 3px solid var(--fc-strong-border-color); /* Thicker and darker border */
+  box-sizing: border-box;
+}
+
+.fc-timegrid-body .fc-scrollgrid-section-body td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: var(--fc-axis-bg-color);
+}
+
+.fc .fc-timegrid-slot-label {
+  vertical-align: middle;
+  border-width: 0;
+}
+
+.fc .fc-timegrid-slot-label-cushion {
+  color: var(--muted-foreground, #64748b);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0 4px;
+  text-align: center;
+}
+
+.fc-direction-ltr .fc-timegrid-slot-label-frame {
+  text-align: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: var(--fc-time-column-width);
+  box-sizing: border-box;
+}
+
+/* === Day Headers === */
+.fc .fc-col-header {
+  background-color: var(--fc-header-bg-color);
+  border-bottom: 3px solid var(--fc-strong-border-color); /* Thicker bottom border */
+}
+
+.fc .fc-col-header-cell {
+  padding: 8px 0;
+  border-bottom: 3px solid var(--fc-strong-border-color); /* Thicker bottom border */
+  border-left-width: 0;
+  border-right: 3px solid var(--fc-strong-border-color); /* Thicker right border */
+  min-width: 90px;
+  box-shadow: 0 3px 5px rgba(0, 0, 0, 0.1); /* Stronger shadow */
+}
+
+.fc .fc-col-header-cell:last-child {
+  border-right: 3px solid var(--fc-strong-border-color);
+}
+
+.fc .fc-col-header-cell-cushion {
+  color: var(--foreground, #0f172a);
+  font-weight: 800; /* Even bolder */
+  padding: 8px; /* More padding */
+  text-decoration: none;
+  text-transform: uppercase;
+  font-size: 0.85rem; /* Slightly larger */
+  text-align: center;
+  display: block;
+}
+
+/* === Time Grid & Day Columns === */
+.fc .fc-timegrid-slot {
+  height: 3rem;
+  border-bottom: 1px solid var(--fc-border-color);
+  background-color: transparent;
+}
+
+.fc .fc-timegrid-slot:nth-child(even) {
+  background-color: rgba(0, 0, 0, 0.03); /* Subtle alternating row color */
+}
+
+.fc .fc-timegrid-slot:last-child {
+  border-bottom-width: 0;
+}
+
+/* Apply different background colors to alternating days for better visibility */
+.fc .fc-timegrid-col:nth-child(odd) {
+  background-color: var(--fc-day-bg-color);
+}
+
+.fc .fc-timegrid-col:nth-child(even) {
+  background-color: var(--fc-day-alt-bg-color);
+}
+
+.fc .fc-timegrid-col {
+  background-color: transparent;
+  border-left-width: 0;
+  border-right: 3px solid var(--fc-strong-border-color); /* Thicker border between days */
+  min-width: 100px;
+}
+
+.fc .fc-timegrid-col:last-child {
+  border-right: 3px solid var(--fc-strong-border-color);
+}
+
+/* Hour marker lines - make all hours more visible */
+.fc .fc-timegrid-slot[data-time$=":00:00"] {
+  border-top: 2px solid var(--fc-strong-border-color); /* Darker border for hour marks */
+  background-color: rgba(0, 0, 0, 0.04); /* Slightly darker for hour markers */
+}
+
+/* Add horizontal grid lines for half hours */
+.fc .fc-timegrid-slot[data-time$=":30:00"] {
+  border-top: 1px dashed var(--fc-border-color); /* Dashed border for half hours */
+}
+
+/* === Events & Selection === */
+.fc-highlight {
+  background-color: hsla(var(--destructive-hsl, 0 84.2% 60.2%), 0.4);
+  border: 2px dashed hsla(var(--destructive-hsl, 0 84.2% 60.2%), 0.9); /* More visible dashed border */
+  z-index: 3;
+  box-sizing: border-box;
+}
+
+.fc-v-event.restriction-event {
+  background-color: hsla(var(--destructive-hsl, 0 84.2% 60.2%), 0.95); /* Higher opacity for better visibility */
+  border: 2px solid hsla(var(--destructive-hsl, 0 84.2% 60.2%), 1);
+  border-radius: var(--radius);
+  margin: 2px 3px; /* Slightly larger margins */
+  box-shadow: 0 3px 6px rgba(0,0,0,0.25); /* Stronger shadow */
+  cursor: pointer;
+  z-index: 4;
+  transition: all 0.15s ease-in-out;
+}
+
+.fc-v-event.restriction-event:hover {
+  background-color: hsla(var(--destructive-hsl, 0 84.2% 60.2%), 1);
+  border-color: hsla(var(--destructive-hsl, 0 84.2% 60.2%), 1);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.3); /* Enhanced shadow on hover */
+  transform: translateY(-1px); /* Subtle lift effect */
+}
+
+.restriction-event .fc-event-main {
+  color: var(--destructive-foreground, #ffffff);
+  font-weight: 700; /* Bolder */
+  padding: 4px 6px; /* More padding */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6); /* Stronger text shadow */
+  font-size: 0.8rem; /* Larger font */
+  letter-spacing: 0.01em; /* Slightly increased letter spacing */
+}
+
+/* Events */
+.fc-event.no-mow-event {
+  border-radius: 4px;
+  padding: 4px;
+  font-size: 0.75rem;
+  background-color: #EF4444;
+  border-color: #DC2626;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 1px;
+  z-index: 10;
+  opacity: 0.85;
+}
+
+/* No-Mow label styling */
+.no-mow-event .fc-event-main {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: white;
+  font-weight: 600;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+}
+
+/* Event container fixes */
+.fc-event-main {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.fc-event-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-v-event {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+/* Mowing event styles */
+.fc-event.mowing-event {
+  border-radius: 4px;
+  margin: 1px 0;
+  border-width: 2px;
+  background-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.7);
+  border-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.9);
+}
+
+.fc-event.mowing-event .fc-event-main {
+  padding: 2px 4px;
+  color: white;
+  font-weight: 500;
+}
+
+.fc-event.mowing-event:hover {
+  background-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.85);
+  border-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 1);
+}
+
+/* Fix for event position */
+.fc-timegrid-event-harness {
+  max-width: 100%;
+  width: calc(100% - 4px);
+  margin: 0 2px;
+  box-sizing: border-box;
+}
+
+/* Fix alignment of event content */
+.fc-event-main-frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* === Dark Theme Explicit Overrides === */
+html.dark .fc {
+  background-color: var(--background);
+  color: var(--foreground);
+  --fc-border-color: hsla(var(--border-hsl, 240 3.7% 15.9%), 0.9); /* More visible borders */
+  --fc-strong-border-color: hsla(var(--border-hsl, 240 3.7% 15.9%), 1); /* Stronger borders */
+  --fc-page-bg-color: var(--background);
+  --fc-neutral-bg-color: var(--background);
+  --fc-list-event-hover-bg-color: var(--accent);
+  --fc-highlight-color: hsla(var(--primary-hsl), 0.35);
+  --fc-header-bg-color: hsla(var(--card-hsl), 1);
+  --fc-axis-bg-color: hsla(var(--muted-foreground-hsl), 0.15); /* More visible axis bg */
+  --fc-day-bg-color: transparent;
+  --fc-day-alt-bg-color: hsla(var(--muted-foreground-hsl), 0.05); /* Alternating days in dark mode */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+html.dark .fc-scrollgrid {
+  background-color: var(--background);
+  border-color: var(--fc-strong-border-color);
+}
+
+html.dark .fc-theme-standard td,
+html.dark .fc-theme-standard th {
+  border-color: var(--fc-border-color);
+}
+
+/* Dark Time Axis */
+html.dark .fc .fc-timegrid-axis-frame,
+html.dark .fc .fc-timegrid-slots td:first-child,
+html.dark .fc .fc-col-header thead tr th:first-child,
+html.dark .fc-timegrid-body .fc-scrollgrid-section-body td:first-child {
+  background-color: hsla(var(--card-hsl), 0.6); /* More visible axis in dark mode */
+  border-right-color: var(--fc-strong-border-color);
+}
+
+html.dark .fc .fc-timegrid-slot-label-cushion {
+  color: hsla(var(--muted-foreground-hsl), 1); /* Brighter text in dark mode */
+}
+
+/* Dark Day Headers */
+html.dark .fc .fc-col-header {
+  background-color: hsla(var(--card-hsl), 0.9); /* More visible header background */
+  border-bottom: 3px solid var(--fc-strong-border-color);
+}
+
+html.dark .fc .fc-col-header-cell {
+  border-bottom-color: var(--fc-strong-border-color);
+  border-right-color: var(--fc-strong-border-color);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .fc .fc-col-header-cell:last-child {
+  border-right-color: var(--fc-strong-border-color);
+}
+
+html.dark .fc .fc-col-header-cell-cushion {
+  color: hsla(var(--foreground-hsl), 1);
+}
+
+/* Dark Time Grid / Day Columns */
+html.dark .fc .fc-timegrid-slot {
+  border-bottom-color: var(--fc-border-color);
+  background-color: var(--background);
+}
+
+html.dark .fc .fc-timegrid-slot:nth-child(even) {
+  background-color: hsla(var(--muted-foreground-hsl), 0.03); /* Subtle alternating rows */
+}
+
+/* Alternating day backgrounds in dark mode */
+html.dark .fc .fc-timegrid-col:nth-child(odd) {
+  background-color: var(--fc-day-bg-color);
+}
+
+html.dark .fc .fc-timegrid-col:nth-child(even) {
+  background-color: var(--fc-day-alt-bg-color);
+}
+
+html.dark .fc .fc-timegrid-slot[data-time$=":00:00"] {
+  border-top: 2px solid var(--fc-strong-border-color);
+  background-color: hsla(var(--muted-foreground-hsl), 0.08); /* More visible hour markers */
+}
+
+html.dark .fc .fc-timegrid-slot[data-time$=":30:00"] {
+  border-top: 1px dashed var(--fc-border-color); /* Half-hour markers in dark mode */
+}
+
+html.dark .fc .fc-timegrid-col {
+  background-color: var(--background);
+  border-right-color: var(--fc-strong-border-color);
+}
+
+html.dark .fc .fc-timegrid-col:last-child {
+  border-right-color: var(--fc-strong-border-color);
+}
+
+/* Dark Events & Selection */
+html.dark .fc-highlight {
+  background-color: hsla(var(--destructive-hsl), 0.45) !important;
+  border: 2px dashed hsla(var(--destructive-hsl), 0.95) !important;
+}
+
+html.dark .fc-v-event.restriction-event {
+  background-color: hsla(var(--destructive-hsl), 0.95) !important;
+  border-color: hsla(var(--destructive-hsl), 1) !important;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5), 0 0 3px hsla(var(--destructive-hsl), 0.5); /* Glow effect */
+}
+
+html.dark .fc-v-event.restriction-event:hover {
+  background-color: hsla(var(--destructive-hsl), 1) !important;
+  border-color: hsla(var(--destructive-hsl), 1) !important;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), 0 0 5px hsla(var(--destructive-hsl), 0.6); /* Enhanced glow */
+  transform: translateY(-1px);
+}
+
+html.dark .restriction-event .fc-event-main {
+  color: hsla(var(--destructive-foreground-hsl), 1) !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+html.dark .fc-event.no-mow-event {
+  background-color: hsla(var(--destructive-hsl), 0.7) !important;
+  border-color: hsla(var(--destructive-hsl), 0.9) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .no-mow-event .fc-event-main {
+  color: var(--destructive-foreground) !important;
+}
+
+html.dark .fc-event.mowing-event {
+  background-color: hsla(var(--primary-hsl), 0.6) !important;
+  border-color: hsla(var(--primary-hsl), 0.8) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .fc-event.mowing-event:hover {
+  background-color: hsla(var(--primary-hsl), 0.7) !important;
+  border-color: hsla(var(--primary-hsl), 0.9) !important;
+}
+
+html.dark .fc-event.mowing-event .fc-event-main {
+  color: white !important;
+}
+
+/* === Today Highlight === */
+.fc .fc-col-header-cell.fc-day-today {
+  background-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.1);
+}
+
+.fc .fc-timegrid-col.fc-day-today {
+  background-color: hsla(var(--primary-hsl, 142.1 76.2% 36.3%), 0.05);
+}
+
+html.dark .fc .fc-col-header-cell.fc-day-today {
+  background-color: hsla(var(--primary-hsl), 0.15);
+}
+
+html.dark .fc .fc-timegrid-col.fc-day-today {
+  background-color: hsla(var(--primary-hsl), 0.07);
+}
+
+/* === Mobile Optimizations === */
+@media (max-width: 768px) {
+  .fc {
+    --fc-time-column-width: 40px;
+    font-size: 0.7rem;
+  }
+  
+  .fc .fc-timegrid-slot {
+    height: 2.5rem;
+  }
+  
+  .fc .fc-col-header-cell {
+    padding: 6px 0;
+    min-width: 65px;
+  }
+  
+  .fc .fc-col-header-cell-cushion {
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-align: center;
+    display: block;
+  }
+  
+  .fc .fc-timegrid-slot-label-cushion {
+    font-size: 0.6rem;
+  }
+  
+  .restriction-event .fc-event-main {
+    font-size: 0.65rem;
+  }
+  
+  /* Smaller column width for days */
+  .fc .fc-timegrid-col.fc-day-sun,
+  .fc .fc-timegrid-col.fc-day-mon,
+  .fc .fc-timegrid-col.fc-day-tue,
+  .fc .fc-timegrid-col.fc-day-wed,
+  .fc .fc-timegrid-col.fc-day-thu,
+  .fc .fc-timegrid-col.fc-day-fri,
+  .fc .fc-timegrid-col.fc-day-sat {
+    min-width: 65px;
+  }
+}
+
+@media (max-width: 480px) {
+  .fc {
+    --fc-time-column-width: 30px;
+  }
+  
+  /* Ultra compact day headers for very small screens */
+  .fc .fc-col-header-cell {
+    padding: 4px 0;
+    min-width: 50px;
+  }
+  
+  .fc .fc-col-header-cell-cushion {
+    padding: 2px;
+    font-size: 0.6rem;
+    font-weight: 700;
+  }
+  
+  /* For single-letter day names */
+  .fc .fc-col-header-cell-cushion .fc-weekday {
+    font-weight: bold;
+    font-size: 0.8rem;
+  }
+  
+  /* Date number below the day name */
+  .fc .fc-col-header-cell-cushion .fc-date {
+    font-size: 0.7rem;
+  }
+  
+  .fc .fc-timegrid-slot-label-cushion {
+    font-size: 0.55rem;
+  }
+  
+  .restriction-event .fc-event-main {
+    font-size: 0.6rem;
+  }
+  
+  /* Reduce day column width */
+  .fc .fc-timegrid-col.fc-day-sun,
+  .fc .fc-timegrid-col.fc-day-mon,
+  .fc .fc-timegrid-col.fc-day-tue,
+  .fc .fc-timegrid-col.fc-day-wed,
+  .fc .fc-timegrid-col.fc-day-thu,
+  .fc .fc-timegrid-col.fc-day-fri,
+  .fc .fc-timegrid-col.fc-day-sat {
+    min-width: 50px;
+  }
+}
+
+/* === HSL Variable Definitions === */
+:root {
+  --destructive-hsl: 0 84.2% 60.2%;
+  --destructive-foreground-hsl: 0 0% 98%;
+  --primary-hsl: 142.1 76.2% 36.3%;
+  --card-hsl: 0 0% 100%;
+  --border-hsl: 240 5.9% 90%;
+  --foreground-hsl: 240 10% 3.9%;
+  --muted-foreground-hsl: 240 3.8% 46.1%;
+}
+
+.dark {
+  --destructive-hsl: 0 62.8% 30.6%;
+  --destructive-foreground-hsl: 0 0% 98%;
+  --primary-hsl: 142.1 70.6% 45.3%;
+  --card-hsl: 0 0% 3.9%;
+  --border-hsl: 240 3.7% 15.9%;
+  --foreground-hsl: 0 0% 98%;
+  --muted-foreground-hsl: 240 5% 64.9%;
+} 

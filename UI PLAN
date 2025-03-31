@@ -1,0 +1,144 @@
+# MowerMind AI - UI/UX Overhaul Plan
+
+**Version:** 1.0
+**Date:** \[Insert Current Date Here]
+
+**1. Vision & Guiding Principles**
+
+*   **Core Goal:** Elevate the MowerMind AI application to a premium, "Fortune 500" standard of user interface design and user experience. The platform, while functionally simple (Dashboard + Chat), must exude quality, clarity, and sophistication.
+*   **Target Aesthetic:**
+    *   **Theme:** Predominantly dark mode. Strict adherence to a clean, high-contrast palette primarily using blacks, whites, and shades of grey. A single, subtle accent color may be introduced *only* if necessary for critical status indicators or primary actions, chosen carefully to maintain class.
+    *   **Style:** Minimalist, modern, and classy. Inspired by Material Design's focus on intentionality, clean lines, purposeful whitespace, clear typography, and subtle, non-intrusive animations/transitions. Avoid visual clutter at all costs.
+*   **Guiding Principles:**
+    *   **Clarity First:** Information must be presented logically and be instantly scannable. Users should understand status and options with zero friction.
+    *   **Intentionality:** Every UI element, spacing decision, and interaction must have a clear purpose. Remove anything superfluous.
+    *   **Consistency:** Maintain a strict design language across all components, pages (Dashboard, Chat), and interactions (typography, spacing, borders, radii, iconography).
+    *   **Seamlessness:** Transitions between states and pages should feel fluid and natural. The Chat experience, in particular, must feel effortless, mirroring the polish of leading conversational AI platforms like ChatGPT.
+    *   **Responsiveness:** Design primarily for desktop but ensure the layout gracefully adapts to common smaller screen sizes.
+    *   **Performance:** The UI must feel immediate and responsive, free of lag or jank.
+
+**2. Technology Stack & UI Foundation**
+
+*   **Core Framework:** Next.js `14.0.0` (Verified stable version)
+*   **UI Library:** React `18.2.0`
+*   **Styling:** Tailwind CSS `3.3.0`
+*   **Component Library:** **shadcn/ui** - This will be the *exclusive* source for base UI components (Buttons, Cards, Inputs, Dialogs, etc.) to ensure visual consistency and leverage Tailwind effectively.
+*   **Theming:**
+    *   `next-themes` for managing dark/light mode (defaulting strictly to dark).
+    *   `src/app/globals.css`: Precise definition of CSS variables for the dark theme (e.g., `--background: 0 0% 3%; --foreground: 0 0% 95%; --border: 0 0% 15%;` etc. - exact values TBD and refined).
+*   **Typography:**
+    *   Select a highly readable, modern sans-serif font pair (e.g., Inter, IBM Plex Sans).
+    *   Define strict typographic scale (heading sizes, body text, weights) in `tailwind.config.js` and/or `globals.css`.
+*   **Icons:** **Lucide Icons** (via shadcn/ui) used exclusively for consistency.
+
+**3. Project & Code Structure**
+
+*   **Directories:** Maintain a logical structure:
+    *   `src/app/`: Next.js App Router pages (`(app)/layout.tsx`, `(app)/dashboard/page.tsx`, `(app)/chat/page.tsx`). Group related routes if necessary.
+    *   `src/components/ui/`: Re-exported shadcn/ui components.
+    *   `src/components/layout/`: Global layout components (Navbar, Footer if any).
+    *   `src/components/common/`: Reusable components shared across features.
+    *   `src/components/dashboard/`: Components specific to the Dashboard page.
+    *   `src/components/chat/`: Components specific to the Chat page.
+    *   `src/lib/`: Utility functions, API clients, etc.
+    *   `src/styles/` (or directly in `src/app/globals.css`): Global styles and theme variables.
+*   **Naming Conventions:** Consistent naming for files, components, variables.
+
+**4. Scaffolding: Global Layout & Structure**
+
+*   **Objective:** Build the outermost shell of the application.
+*   **`src/app/layout.tsx`:**
+    *   Define the root HTML structure (`<html>`, `<body>`).
+    *   Integrate `ThemeProvider` from `next-themes`, configured to default to `dark` and disable system preference detection initially.
+    *   Place the global `Toaster` component (from shadcn/ui) for notifications.
+    *   Render the persistent `Navbar` component.
+    *   Render `{children}` within the main content area.
+*   **`src/components/layout/Navbar.tsx`:**
+    *   Design: Extremely clean, minimal top navigation bar. Possibly a thin horizontal rule separating it from the content below.
+    *   Content:
+        *   Left: Subtle App Logo/Name (Text or a very clean SVG).
+        *   Center/Left: Navigation Links ("Dashboard", "Chat") with clear active state indication.
+        *   Right: Potentially a user profile/settings icon (if needed later).
+    *   Styling: Use defined dark theme variables for background, text, and borders. Ensure appropriate padding.
+
+**5. Page Blueprints: Building Inward**
+
+*   **A. Dashboard (`/dashboard`)**
+    *   **Objective:** Provide a crystal-clear, immediate overview of mower status and basic controls. Minimalist data presentation.
+    *   **Layout:** A clean grid or flexbox layout presenting `MowerCard` components. Ample whitespace is critical. Define consistent padding around the page content.
+    *   **Components:**
+        *   `MowerCard.tsx` (`src/components/dashboard/`):
+            *   Base: shadcn `Card`.
+            *   Content Hierarchy:
+                1.  Mower Name (e.g., `<h2>`, bold, primary foreground color).
+                2.  Status: Icon (Lucide) + Text Label (e.g., "Mowing", "Charging", "Idle", "Error", "Offline"). Use distinct colors only for critical states like "Error" (using the defined accent or destructive color).
+                3.  Battery: Clean progress bar (shadcn `Progress`) or Icon + Percentage Text.
+                4.  Last Seen: Subtle text (e.g., "5 minutes ago").
+                5.  Controls (Optional): Minimal buttons (shadcn `Button` with `ghost` or `outline` variant) for "Details" or "Chat". Avoid clutter.
+            *   Styling: Use defined card background, foreground, and border variables. Consistent internal padding. Subtle hover effect.
+        *   `MapView.tsx` (`src/components/dashboard/`):
+            *   Placeholder initially. Allocate space in the grid/layout.
+            *   Styling must blend seamlessly with the dark theme (if integrated later).
+*   **B. Chat Interface (`/chat`)**
+    *   **Objective:** Deliver a "ChatGPT quality" UI experience – seamless, focused, intuitive, and aesthetically clean conversational interface.
+    *   **Layout:**
+        *   Full-height container.
+        *   Main content area (`MessageList`) scrolls vertically.
+        *   `ChatInput` area is fixed/sticky to the bottom.
+    *   **Components:**
+        *   `MessageList.tsx` (`src/components/chat/`):
+            *   Responsible for rendering the list of `MessageBubble` components.
+            *   Implement smooth scrolling, potentially auto-scrolling to the bottom on new messages.
+        *   `MessageBubble.tsx` (`src/components/chat/`):
+            *   Base: Maybe shadcn `Card` or a custom div styled appropriately.
+            *   Variants: Clear visual distinction between User messages (e.g., right-aligned, slightly different background shade) and AI messages (left-aligned, base chat background).
+            *   Content: The message text itself (formatted for readability). Optionally, a subtle timestamp and potentially a minimalist AI icon/avatar for bot messages.
+            *   Styling: Generous padding within bubbles, appropriate `max-width` for readability, clean typography. Focus on contrast and legibility.
+        *   `ChatInput.tsx` (`src/components/chat/`):
+            *   Base: shadcn `Textarea` (allowing multi-line input) paired with a shadcn `Button` (likely icon-only with a Send icon - Lucide `Send` or `ArrowUp`).
+            *   Layout: Input and button integrated cleanly within a container fixed to the bottom.
+            *   Styling: Use theme variables for input background, border, text, and button. Should feel like a natural part of the chat flow.
+        *   Loading/Thinking Indicator: Design a subtle indicator for when the AI is processing a response.
+
+**6. Implementation Strategy & Phasing**
+
+*   **Phase 0: Stabilization (Pre-computation) - IMMEDIATE NEXT STEP**
+    *   **Goal:** Ensure a stable foundation *before* implementing new UI.
+    *   **Actions:**
+        *   Verify `npm install` completes without critical errors or peer dependency conflicts related to core packages (Next, React, Tailwind, shadcn).
+        *   Run `npm run dev` and confirm the application starts without immediate crashes.
+        *   **Crucially:** Diagnose and permanently fix the recurring errors observed in previous logs (see attached `additional_data` for examples):
+            *   `Module not found: Can't resolve '@/components/ui/toaster'` (Verify export/import paths and potential build cache issues - **Likely culprit based on logs**).
+            *   `TypeError: __webpack_modules__[moduleId] is not a function` (Often indicates deeper build/dependency conflicts or issues loading components).
+            *   Tailwind `Cannot apply unknown utility class: border-neutral-200` (Ensure correct configuration and class usage - **Likely fixed, but verify**).
+            *   Webpack caching errors (`ENOENT`, `Unexpected end of object`). Consider clearing `.next/cache` (`Remove-Item -Recurse -Force .next/cache` in PowerShell) if persistent.
+            *   `Unsupported Server Component type: undefined` / `React.jsx: type is invalid` (Often follows module resolution errors like the toaster one).
+        *   Run `npx tsc --noEmit` and ensure zero TypeScript errors.
+        *   Run ESLint/Prettier and fix all reported issues.
+*   **Phase 1: Scaffolding & Theming**
+    *   Implement the Root Layout (`layout.tsx`).
+    *   Implement the persistent `Navbar.tsx`.
+    *   Define and apply the base dark theme variables in `globals.css`.
+    *   Ensure basic navigation between `/dashboard` and `/chat` works via the Navbar.
+*   **Phase 2: Dashboard Core**
+    *   Build the Dashboard page layout (grid/flex).
+    *   Build the `MowerCard.tsx` component with mock data, focusing on structure and styling according to the plan.
+*   **Phase 3: Chat Core**
+    *   Build the Chat page layout.
+    *   Build the `MessageBubble.tsx` (both user and AI variants) with static examples.
+    *   Build the `ChatInput.tsx` component structure and styling.
+    *   Implement basic `MessageList.tsx` rendering.
+*   **Phase 4: Refinement & Integration**
+    *   Refine styling across all components based on visual review.
+    *   Implement actual data fetching/display for the Dashboard.
+    *   Implement chat state management and interaction logic.
+    *   Add subtle animations/transitions where appropriate (e.g., message appearance).
+    *   Conduct responsiveness testing and adjustments.
+*   **MCP Tooling:** Use MCP *strategically* during Phases 2, 3, or 4 *only* if a highly specific, complex static component variation is needed *and* the foundational structure is stable. The plan serves as the detailed spec for any MCP generation request. Generated code *must* be reviewed, potentially refactored, and integrated manually to fit the established patterns and quality bar.
+
+**7. Quality Assurance**
+
+*   Regularly review UI against the plan and design principles.
+*   Test across different browsers (Chrome, Firefox, Edge).
+*   Test responsiveness on various screen sizes.
+*   Ensure accessibility standards are considered (contrast ratios, keyboard navigation).
