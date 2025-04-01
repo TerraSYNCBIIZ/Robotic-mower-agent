@@ -208,7 +208,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 // Heartbeat interval (ms)
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+const HEARTBEAT_INTERVAL = 300000; // 5 minutes (increased from 30 seconds)
 
 // Persistent connection ID for the always-on connection
 let persistentConnectionId = null;
@@ -567,7 +567,85 @@ async function connectToHusqvarnaWS(connectionId) {
                   }
                   break;
                 
-                // Add other event types as needed
+                case 'cuttingHeight-event-v2':
+                  // Update cutting height data
+                  if (data.attributes.cuttingHeight !== undefined) {
+                    queueFirebaseUpdate(mowerId, 'cuttingHeight', {
+                      value: data.attributes.cuttingHeight,
+                      timestamp: new Date()
+                    });
+                  }
+                  break;
+                
+                case 'headlights-event-v2':
+                  // Update headlights data
+                  if (data.attributes.headlight) {
+                    queueFirebaseUpdate(mowerId, 'headlights', {
+                      mode: data.attributes.headlight.mode || 'UNKNOWN',
+                      timestamp: new Date()
+                    });
+                  }
+                  break;
+                
+                case 'message-event-v2':
+                  // Update message/alert data
+                  if (data.attributes.message) {
+                    const message = data.attributes.message;
+                    queueFirebaseUpdate(mowerId, 'messages', {
+                      id: message.id || `msg-${Date.now()}`,
+                      level: message.level || 'INFO',
+                      headline: message.headline || '',
+                      text: message.text || '',
+                      datetime: message.datetime || new Date().toISOString(),
+                      resolved: message.resolved || false,
+                      timestamp: new Date()
+                    });
+                    
+                    // Also store in history collection for messages
+                    const historyData = {
+                      timestamp: serverTimestamp(),
+                      type: 'message',
+                      data: {
+                        id: message.id || `msg-${Date.now()}`,
+                        level: message.level || 'INFO',
+                        headline: message.headline || '',
+                        text: message.text || '',
+                        datetime: message.datetime || new Date().toISOString(),
+                        resolved: message.resolved || false
+                      }
+                    };
+                    
+                    try {
+                      // Add to history collection if Firebase is initialized
+                      if (db) {
+                        setDoc(
+                          doc(collection(db, MOWERS_COLLECTION, mowerId, 'history'), randomUUID()),
+                          historyData
+                        );
+                      }
+                    } catch (error) {
+                      console.error(`Error storing message history for mower ${mowerId}:`, error);
+                    }
+                  }
+                  break;
+                
+                case 'planner-event-v2':
+                  // Update planner data
+                  if (data.attributes.planner) {
+                    const planner = data.attributes.planner;
+                    queueFirebaseUpdate(mowerId, 'planner', {
+                      nextStartTimestamp: planner.nextStartTimestamp || null,
+                      override: planner.override || { action: 'NO_SOURCE' },
+                      restrictedReason: planner.restrictedReason || 'NONE',
+                      timestamp: new Date()
+                    });
+                  }
+                  break;
+                
+                // Default case to log unhandled event types
+                default:
+                  console.log(`[${connectionId}] Unhandled event type: ${data.type}`);
+                  break;
               }
             }
           } catch (parseError) {
@@ -862,8 +940,8 @@ const heartbeat = setInterval(() => {
   
   // Also check husqvarna connections
   connections.forEach((connection, id) => {
-    // Check if the connection is stale (no activity for 2 minutes)
-    const isStale = Date.now() - connection.lastActivity > 120000;
+    // Check if the connection is stale (no activity for 10 minutes)
+    const isStale = Date.now() - connection.lastActivity > 600000; // 10 minutes (increased from 2 minutes)
     
     if (isStale) {
       console.log(`[${id}] Connection appears stale, checking status...`);
