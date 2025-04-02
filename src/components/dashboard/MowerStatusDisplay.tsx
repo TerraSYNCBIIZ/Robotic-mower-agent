@@ -89,12 +89,14 @@ export function MowerStatusDisplay({
   const isError = mower.state.includes("ERROR") || mower.errorCode > 0;
   
   // Get simplified status for display
-  const getSimplifiedStatus = (): "mowing" | "charging" | "parked" | "returning" | "idle" | "error" => {
+  const getSimplifiedStatus = (): "mowing" | "charging" | "parked" | "returning" | "idle" | "error" | "online" | "paused" => {
     if (isError) return "error";
     if (mower.activity === "MOWING") return "mowing";
     if (mower.activity === "CHARGING") return "charging";
     if (mower.activity === "PARKED_IN_CS") return "parked";
     if (mower.activity === "GOING_HOME") return "returning";
+    if (mower.activity === "LEAVING") return "online";
+    if (mower.state === "PAUSED") return "paused";
     return "idle";
   };
 
@@ -114,6 +116,10 @@ export function MowerStatusDisplay({
         return "bg-yellow-500 text-yellow-50";
       case "error":
         return "bg-red-500 text-red-50";
+      case "online":
+        return "bg-emerald-500 text-emerald-50";
+      case "paused":
+        return "bg-amber-500 text-amber-50";
       default:
         return "bg-slate-500 text-slate-50";
     }
@@ -127,6 +133,8 @@ export function MowerStatusDisplay({
       case "returning": return "Returning";
       case "idle": return "Idle";
       case "error": return "Error";
+      case "online": return "Online";
+      case "paused": return "Paused";
       default: return "Unknown";
     }
   };

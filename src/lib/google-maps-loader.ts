@@ -29,10 +29,10 @@ export function loadGoogleMapsApi(): Promise<void> {
   // Create new loading promise
   loadingPromise = new Promise<void>((resolve, reject) => {
     try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_CLOUD_API_KEY || process.env.GOOGLE_CLOUD_API_KEY;
       
       if (!apiKey) {
-        const error = new Error("Google Maps API key not found in environment variables");
+        const error = new Error("Google Maps API key not found in environment variables. Please make sure NEXT_PUBLIC_GOOGLE_CLOUD_API_KEY is defined.");
         console.error(error);
         loadingPromise = null;
         reject(error);

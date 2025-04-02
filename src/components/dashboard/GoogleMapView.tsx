@@ -946,15 +946,15 @@ export function GoogleMapView({
       case "charging":
         return "#3b82f6"; // blue-500
       case "idle":
-        return "#6366f1"; // indigo-500
+        return "#94a3b8"; // gray-400
       case "offline":
         return "#6b7280"; // gray-500
       case "error":
         return "#ef4444"; // red-500
       case "returning":
-        return "#f59e0b"; // amber-500
+        return "#6366f1"; // indigo-500
       case "parked":
-        return "#10b981"; // emerald-500
+        return "#64748b"; // slate-500
       case "online":
         return "#10b981"; // emerald-500
       case "paused":
@@ -987,16 +987,17 @@ export function GoogleMapView({
   return (
     <Card
       className={cn(
-        "overflow-hidden",
-        isFullscreen ? "w-full h-full" : "",
+        "overflow-hidden h-full w-full",
+        isFullscreen ? "fixed inset-0 z-50" : "",
         className
       )}
-          style={{
-        width: isFullscreen ? "100%" : width,
-        height: isFullscreen ? "100%" : height,
+      style={{
+        width: isFullscreen ? "100vw" : "100%",
+        height: isFullscreen ? "100vh" : "100%",
+        position: "relative"
       }}
     >
-      <CardContent className="p-0 relative h-full">
+      <CardContent className="p-0 relative h-full w-full">
         {/* Loading State */}
         {!mapLoaded && !error && (
           <div className="absolute inset-0 flex items-center justify-center bg-card z-10">
@@ -1052,9 +1053,10 @@ export function GoogleMapView({
         {/* Map Container */}
         <div 
           ref={mapRef}
-          className="w-full h-full"
+          className="absolute inset-0 w-full h-full"
           aria-label="Map view of mower locations"
           role="application"
+          style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
         />
         
         {/* Map Controls - Only show when map is loaded */}

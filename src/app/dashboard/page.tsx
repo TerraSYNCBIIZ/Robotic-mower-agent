@@ -13,23 +13,17 @@ import { ConnectionStatusIcons } from '@/components/dashboard/ConnectionStatusIc
 import { MowerStats } from '@/components/dashboard/mower-stats/MowerStats';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, RefreshCw, X } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, X, Tag } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { WebSocketStatus } from '@/lib/husqvarna/websocket';
 import { SystemStatsWidget } from '@/components/dashboard/SystemStatsWidget';
 import { triggerComprehensiveDataRefresh } from './actions';
+import { Category } from '@/components/dashboard/MowerCard';
+import CategoryManagement from '@/components/dashboard/CategoryManagementDialog';
+import { getLocationFromMowers } from '@/lib/weather/location-utils';
 
 // Define mower status type
-export type MowerStatus = 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked';
-
-// Define category filters
-const CATEGORIES = [
-  { id: 'all', name: 'All', color: '#ffffff' },
-  { id: 'front', name: 'Front Yard', color: '#3b82f6' },
-  { id: 'back', name: 'Back Yard', color: '#ef4444' },
-  { id: 'side', name: 'Side Yard', color: '#8b5cf6' },
-  { id: 'garden', name: 'Garden', color: '#84cc16' }
-];
+export type MowerStatus = 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused';
 
 // Define status filters
 export const STATUS_FILTERS = [
@@ -39,6 +33,8 @@ export const STATUS_FILTERS = [
   { id: 'parked', name: 'Parked' },
   { id: 'idle', name: 'Idle' },
   { id: 'returning', name: 'Returning' },
+  { id: 'online', name: 'Online' },
+  { id: 'paused', name: 'Paused' },
   { id: 'error', name: 'Error' },
   { id: 'offline', name: 'Offline' }
 ];
@@ -49,6 +45,10 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // State for categories
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [categoryManagementOpen, setCategoryManagementOpen] = useState(false);
   
   // State for category and status filtering
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -66,6 +66,16 @@ export default function DashboardPage() {
       setLastUpdated(new Date().toLocaleTimeString());
     }
     
+    // Load saved categories from localStorage
+    const savedCategories = localStorage.getItem('mowerCategories');
+    if (savedCategories) {
+      try {
+        setCategories(JSON.parse(savedCategories));
+      } catch (e) {
+        console.error('Error loading saved categories:', e);
+      }
+    }
+    
     return () => {
       // Clear any timers when component unmounts
       if (refreshTimerRef.current) {
@@ -74,6 +84,22 @@ export default function DashboardPage() {
       setMounted(false);
     };
   }, [dashboard.mowerData.length]);
+
+  // Save categories to localStorage when they change
+  useEffect(() => {
+    if (categories.length > 0) {
+      localStorage.setItem('mowerCategories', JSON.stringify(categories));
+    }
+  }, [categories]);
+  
+  // Handle adding/updating categories
+  const handleCategoriesChange = (updatedCategories: Category[]) => {
+    setCategories(updatedCategories);
+    // If all categories were selected, keep it that way
+    if (selectedCategory !== 'all' && !updatedCategories.some(c => c.id === selectedCategory)) {
+      setSelectedCategory('all');
+    }
+  };
   
   // Refresh mower data with debounce
   const handleRefresh = async () => {
@@ -118,9 +144,16 @@ export default function DashboardPage() {
   
   // Filter mowers based on selected category and status
   const filteredMowers = dashboard.mowerData.filter(mower => {
-    const matchesCategory = selectedCategory === 'all' || mower.categories.includes(selectedCategory);
     const matchesStatus = statusFilter === 'all' || mower.status === statusFilter;
-    return matchesCategory && matchesStatus;
+    
+    // For category filtering, if selectedCategory is 'all', show all mowers
+    // Otherwise, check if the mower has this category assigned
+    // For this example, we'll assume each mower has a categories array property
+    // This would need to be implemented in your backend or data fetching logic
+    const matchesCategory = selectedCategory === 'all' || 
+      (mower.categories && mower.categories.includes(selectedCategory));
+      
+    return matchesStatus && matchesCategory;
   });
   
   // Convert mowers to the format expected by GoogleMapView
@@ -239,7 +272,20 @@ export default function DashboardPage() {
       <div className="flex flex-wrap justify-between items-center px-4 py-3 border-b border-border">
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-2 mr-3">
-            {CATEGORIES.map(category => (
+            <button
+              key="all"
+              type="button"
+              onClick={() => setSelectedCategory('all')}
+              className={`rounded-full px-3 py-1 text-sm flex items-center ${
+                selectedCategory === 'all'
+                  ? 'bg-primary text-primary-foreground' 
+                  : 'bg-secondary text-secondary-foreground'
+              }`}
+            >
+              All
+            </button>
+            
+            {categories.map(category => (
               <button
                 key={category.id}
                 type="button"
@@ -260,6 +306,7 @@ export default function DashboardPage() {
             
             <button
               type="button"
+              onClick={() => setCategoryManagementOpen(true)}
               className="rounded-full px-3 py-1 text-sm flex items-center bg-secondary text-secondary-foreground"
             >
               <Plus className="w-3 h-3 mr-1" /> Add Category
@@ -303,15 +350,24 @@ export default function DashboardPage() {
         </div>
       </div>
       
+      {/* Category Management Dialog */}
+      <Dialog open={categoryManagementOpen} onOpenChange={setCategoryManagementOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <CategoryManagement 
+            initialCategories={categories}
+            onChange={handleCategoriesChange}
+          />
+        </DialogContent>
+      </Dialog>
+      
       {/* Map and widgets section */}
       <div className="grid grid-cols-1 md:grid-cols-12 px-4 py-4 gap-4">
         {/* Map container - takes up left side */}
         <div className="md:col-span-6 h-[350px] md:h-[500px]">
-          <div className="h-full rounded-lg overflow-hidden bg-card shadow-sm">
+          <div className="h-full w-full rounded-lg overflow-hidden bg-card shadow-sm flex" style={{ flexDirection: 'column' }}>
             <GoogleMapView 
               mowers={mowerLocations}
-              height="100%"
-              className="w-full h-full"
+              className="w-full h-full flex-1"
               onMowerSelect={handleMowerSelect}
               showZones={showZones}
               onToggleZones={(show) => setShowZones(show)}
@@ -335,6 +391,94 @@ export default function DashboardPage() {
                 database: true
               }
             }}
+            // Pass the mower data for the widget to calculate status distribution
+            mowerData={dashboard.mowerData}
+            // Calculate fleet status from real dashboard data
+            fleetStatus={{
+              // Count mowers in each status
+              statusCounts: dashboard.mowerData.reduce((counts, mower) => {
+                const status = mower.status as MowerStatus;
+                if (!counts[status]) counts[status] = 0;
+                counts[status] += 1;
+                return counts;
+              }, {
+                'mowing': 0,
+                'charging': 0,
+                'idle': 0,
+                'error': 0,
+                'offline': 0,
+                'returning': 0,
+                'parked': 0,
+                'online': 0,
+                'paused': 0
+              } as Record<MowerStatus, number>),
+              totalMowers: dashboard.mowerData.length,
+              // Calculate efficiency - percentage of mowers that are not in error, paused, or offline states
+              efficiency: (() => {
+                const total = dashboard.mowerData.length;
+                if (total === 0) return 100;
+                const problemMowers = dashboard.mowerData.filter(m => 
+                  m.status === 'error' || m.status === 'paused' || m.status === 'offline'
+                ).length;
+                return Math.round(((total - problemMowers) / total) * 100);
+              })(),
+              // Blade change days removed
+              bladeChangeDaysRemaining: 14, // This is no longer used but kept for interface compatibility
+              // Collect all mowers with errors, including proper error data
+              errors: dashboard.mowerData
+                .filter(m => m.status === 'error')
+                .map(mower => ({
+                  mowerId: mower.id,
+                  mowerName: mower.name,
+                  errorCode: (mower as any).attributes?.mower?.errorCode || 
+                    parseInt(mower.errorMessage?.replace('Error code: ', '') || '0', 10),
+                  errorTimestamp: (mower as any).attributes?.mower?.errorCodeTimestamp || 
+                    (mower.lastUpdated ? mower.lastUpdated.getTime() : Date.now() - 3600000),
+                  status: mower.status as MowerStatus
+                })),
+              // Calculate zone completion using actual API data where available
+              totalZones: (() => {
+                // Sum all work areas across mowers
+                let zoneCount = 0;
+                dashboard.mowerData.forEach(mower => {
+                  if (mower.zones && mower.zones.length > 0) {
+                    zoneCount += mower.zones.length;
+                  } else if ((mower as any).attributes?.zones && (mower as any).attributes.zones.length > 0) {
+                    zoneCount += (mower as any).attributes.zones.length;
+                  } else {
+                    // If no zones defined, assume at least 1 zone per mower
+                    zoneCount += 1;
+                  }
+                });
+                return Math.max(zoneCount, 1); // Ensure at least 1 zone exists
+              })(),
+              completedZones: (() => {
+                let completedCount = 0;
+                dashboard.mowerData.forEach(mower => {
+                  // Consider zones complete when:
+                  // 1. Mower is in parked/charging state with areaComplete >= 90%
+                  // 2. Mower has attributes.workAreas with progress 100
+                  if ((mower.status === 'parked' || mower.status === 'charging') && 
+                      parseInt(mower.areaComplete || '0', 10) >= 90) {
+                    // Add all zones from this mower as completed
+                    completedCount += mower.zones?.length || 1;
+                  } else if ((mower as any).attributes?.workAreas) {
+                    // Count work areas marked as 100% complete
+                    ((mower as any).attributes.workAreas as any[]).forEach((area: any) => {
+                      if (area.attributes?.progress === 100) {
+                        completedCount += 1;
+                      }
+                    });
+                  } else if (parseInt(mower.areaComplete || '0', 10) > 0) {
+                    // Partial completion based on areaComplete percentage
+                    const zoneCount = mower.zones?.length || 1;
+                    const percent = parseInt(mower.areaComplete || '0', 10) / 100;
+                    completedCount += Math.round(zoneCount * percent);
+                  }
+                });
+                return completedCount;
+              })()
+            }}
             className="h-full"
           />
         </div>
@@ -343,7 +487,8 @@ export default function DashboardPage() {
         <div className="md:col-span-3 h-[350px] md:h-[500px]">
           <div className="h-full bg-card rounded-lg overflow-hidden shadow-sm">
             <WeatherWidget 
-              city="New York" 
+              // Get location from mowers if available
+              {...getLocationFromMowers(dashboard.mowerData)}
               className="h-full"
             />
           </div>
@@ -368,6 +513,9 @@ export default function DashboardPage() {
               onSelect={handleMowerSelect}
               lastUpdated={mower.lastUpdated}
               dataSource={mower.dataSource || 'unknown'}
+              categories={categories.filter(cat => 
+                mower.categories && mower.categories.includes(cat.id)
+              )}
             />
           ))
         ) : (
@@ -531,6 +679,29 @@ export default function DashboardPage() {
         .mower-stats-container::-webkit-scrollbar-thumb {
           background-color: #4b5563;
           border-radius: 10px;
+        }
+
+        /* Fix Google Maps display */
+        .gm-style {
+          position: absolute !important;
+          height: 100% !important;
+          width: 100% !important;
+        }
+        
+        /* Ensure the map canvas takes the full space */
+        .gm-style > div:first-child {
+          height: 100% !important;
+          width: 100% !important;
+        }
+        
+        /* Make sure the map container has correct position */
+        .gm-style-pbc {
+          z-index: 2;
+          position: absolute;
+          height: 100%;
+          width: 100%;
+          top: 0;
+          left: 0;
         }
       `}</style>
     </div>

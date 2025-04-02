@@ -1612,45 +1612,37 @@ async function initializeServer() {
   server.listen(PORT, () => {
     console.log(`WebSocket proxy server started on port ${PORT}`);
     console.log(`API polling will run every ${API_POLL_INTERVAL / (60 * 60 * 1000)} hours`);
+    
+    // Set up heartbeat interval to check connections
+    setInterval(() => {
+      console.log(`Checking ${connections.size} connections for heartbeat...`);
+      connections.forEach((connection, id) => {
+        if (!connection.isAlive) {
+          console.log(`[${id}] Connection is no longer alive, terminating`);
+          if (connection.husqvarnaWs) {
+            connection.husqvarnaWs.terminate();
+          }
+          if (connection.clientWs) {
+            connection.clientWs.terminate();
+          }
+          connections.delete(id);
+          return;
+        }
+        
+        // Set to not alive, expecting pong to set it back to alive
+        connection.isAlive = false;
+        
+        // Send ping to both Husqvarna and client WebSockets
+        if (connection.husqvarnaWs && connection.husqvarnaWs.readyState === WebSocket.OPEN) {
+          connection.husqvarnaWs.ping();
+        }
+        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
+          connection.clientWs.ping();
+        }
+      });
+    }, HEARTBEAT_INTERVAL);
   });
 }
 
 // Start the server
-initializeServer();
-
-// Server startup
-server.listen(PORT, () => {
-  console.log(`WebSocket proxy server listening on port ${PORT}`);
-  
-  // Initialize Firebase at startup
-  db = initializeFirebase();
-  
-  // Set up heartbeat interval to check connections
-  setInterval(() => {
-    console.log(`Checking ${connections.size} connections for heartbeat...`);
-    connections.forEach((connection, id) => {
-      if (!connection.isAlive) {
-        console.log(`[${id}] Connection is no longer alive, terminating`);
-        if (connection.husqvarnaWs) {
-          connection.husqvarnaWs.terminate();
-        }
-        if (connection.clientWs) {
-          connection.clientWs.terminate();
-        }
-        connections.delete(id);
-        return;
-      }
-      
-      // Set to not alive, expecting pong to set it back to alive
-      connection.isAlive = false;
-      
-      // Send ping to both Husqvarna and client WebSockets
-      if (connection.husqvarnaWs && connection.husqvarnaWs.readyState === WebSocket.OPEN) {
-        connection.husqvarnaWs.ping();
-      }
-      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-        connection.clientWs.ping();
-      }
-    });
-  }, HEARTBEAT_INTERVAL);
-}); 
+initializeServer(); 
