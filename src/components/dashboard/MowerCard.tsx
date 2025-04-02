@@ -1,7 +1,7 @@
 'use client';
 
 import React from "react";
-import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw } from "lucide-react";
+import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw, Tag } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -10,11 +10,17 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns/formatDistanceToNow";
+
+export interface Category {
+  id: string;
+  name: string;
+  color: string;
+}
 
 export interface MowerCardProps {
   name: string;
-  status: "idle" | "mowing" | "charging" | "error" | "offline" | "returning" | "parked";
+  status: "idle" | "mowing" | "charging" | "error" | "offline" | "returning" | "parked" | "online" | "paused";
   batteryLevel: number;
   areaComplete: string;
   nextMaintenance: number;
@@ -26,6 +32,7 @@ export interface MowerCardProps {
   onSelect?: (id: string) => void;
   lastUpdated?: Date;
   dataSource?: 'websocket' | 'api_poll' | 'dashboard_refresh' | string;
+  categories?: Category[];
 }
 
 export function MowerCard({
@@ -42,6 +49,7 @@ export function MowerCard({
   onSelect,
   lastUpdated,
   dataSource,
+  categories = [],
 }: MowerCardProps) {
   const getStatusConfig = () => {
     switch (status) {
@@ -93,6 +101,22 @@ export function MowerCard({
           borderColor: "border-gray-500/20",
           icon: Gauge
         };
+      case "online":
+        return {
+          label: "Online",
+          color: "text-emerald-500",
+          bgColor: "bg-emerald-500/10",
+          borderColor: "border-emerald-500/20",
+          icon: Gauge
+        };
+      case "paused":
+        return {
+          label: "Paused",
+          color: "text-amber-500",
+          bgColor: "bg-amber-500/10",
+          borderColor: "border-amber-500/20",
+          icon: Pause
+        };
       default:
         return {
           label: "Idle",
@@ -134,6 +158,21 @@ export function MowerCard({
     }
   };
 
+  // Map color names to actual Tailwind classes
+  const getColorClass = (color: string) => {
+    const colorMap: Record<string, string> = {
+      red: "bg-red-500",
+      blue: "bg-blue-500",
+      green: "bg-green-500",
+      yellow: "bg-yellow-500",
+      purple: "bg-purple-500",
+      orange: "bg-orange-500",
+      pink: "bg-pink-500",
+      gray: "bg-gray-500",
+    };
+    return colorMap[color] || "bg-gray-500";
+  };
+
   return (
     <Card 
       className={cn(
@@ -156,22 +195,52 @@ export function MowerCard({
           />
         </div>
       )}
+
       <CardHeader className="p-4 pb-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-medium truncate">{name}</h3>
-          <Badge
-            variant="outline"
-            className={cn(
-              "font-normal whitespace-nowrap",
-              statusConfig.color,
-              statusConfig.bgColor,
-              statusConfig.borderColor
-            )}
-          >
-            <StatusIcon className="mr-1 h-3 w-3" />
-            {statusConfig.label}
-          </Badge>
         </div>
+        
+        {/* Status badge - now at the top */}
+        <Badge
+          variant="outline"
+          className={cn(
+            "font-normal whitespace-nowrap",
+            statusConfig.color,
+            statusConfig.bgColor,
+            statusConfig.borderColor,
+            "w-full justify-center py-1.5 my-1"
+          )}
+        >
+          <StatusIcon className="mr-1.5 h-3.5 w-3.5" />
+          {statusConfig.label}
+        </Badge>
+        
+        {/* Categories section */}
+        {categories.length > 0 ? (
+          <div className="flex flex-wrap gap-1 mt-2">
+            <div className="flex items-center mr-1">
+              <Tag className="h-3 w-3 text-muted-foreground mr-1" />
+            </div>
+            {categories.map((category) => (
+              <Badge
+                key={category.id}
+                variant="secondary"
+                className="text-xs py-0 h-5 gap-1.5"
+              >
+                <span 
+                  className={`w-2 h-2 rounded-full ${getColorClass(category.color)}`} 
+                />
+                {category.name}
+              </Badge>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center text-xs text-muted-foreground mt-2">
+            <Tag className="h-3 w-3 mr-1" />
+            <span>No categories</span>
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="p-4 pt-0 pb-0 space-y-3">

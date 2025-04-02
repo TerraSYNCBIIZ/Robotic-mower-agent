@@ -89,7 +89,7 @@ export function MowerStats({
 
   const [showZoneDialog, setShowZoneDialog] = useState(false);
   const [showHomeOptionsDialog, setShowHomeOptionsDialog] = useState(false);
-  const [mowerStatus, setMowerStatus] = useState<'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked'>(status);
+  const [mowerStatus, setMowerStatus] = useState<'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused'>(status);
   
   const [buttonLoading, setButtonLoading] = useState<ButtonLoadingState>({
     home: false,

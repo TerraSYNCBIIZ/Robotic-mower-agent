@@ -88,7 +88,7 @@ export function Navbar() {
     <header className="fixed top-0 left-0 right-0 z-30 border-b bg-background">
       <div className="flex h-16 items-center px-6">
         <div className="flex items-center gap-2 font-bold">
-          <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center">
+          <div className="h-7 w-7 rounded-full bg-green-600 flex items-center justify-center">
             <span className="text-white text-sm">M</span>
           </div>
           <span>MowerMind</span>
@@ -102,7 +102,7 @@ export function Navbar() {
               variant="ghost"
               className={cn(
                 "h-9 gap-1",
-                pathname === item.href && "bg-muted font-medium"
+                pathname === item.href && "bg-green-600/20 text-green-500 font-medium"
               )}
             >
               <Link href={item.href}>

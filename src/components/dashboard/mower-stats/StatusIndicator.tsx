@@ -20,6 +20,10 @@ export function StatusIndicator({ status }: StatusIndicatorProps) {
         return { label: "Error", color: "bg-red-500", textColor: "text-red-500" };
       case "offline":
         return { label: "Offline", color: "bg-gray-600", textColor: "text-gray-600" };
+      case "online":
+        return { label: "Online", color: "bg-emerald-500", textColor: "text-emerald-500" };
+      case "paused":
+        return { label: "Paused", color: "bg-amber-500", textColor: "text-amber-500" };
       default:
         return { label: "Unknown", color: "bg-gray-400", textColor: "text-gray-400" };
     }

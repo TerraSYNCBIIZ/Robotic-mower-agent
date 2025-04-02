@@ -1,7 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { format, addDays, startOfWeek, parseISO, differenceInMinutes } from "date-fns";
+import { format } from "date-fns/format";
+import { addDays } from "date-fns/addDays";
+import { startOfWeek } from "date-fns/startOfWeek";
+import { parseISO } from "date-fns/parseISO";
+import { differenceInMinutes } from "date-fns/differenceInMinutes";
 import { ChevronLeft, ChevronRight, Move } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ShieldAlert } from "lucide-react";

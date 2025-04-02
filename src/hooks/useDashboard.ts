@@ -73,6 +73,9 @@ interface ApiMower {
       name: string;
       id: number;
     }>;
+    connectivity?: {
+      status?: string;
+    };
   };
 }
 
@@ -166,38 +169,97 @@ export const useDashboard = () => {
   
   // Maps API mower data to our application's format
   const mapApiMowerToAppMower = useCallback((apiMower: ApiMower): Mower => {
-    // Map status from activity
+    // Check connectivity status - only treat as offline if explicitly disconnected
+    const connectionStatusValue = apiMower.attributes?.connectivity?.status?.toLowerCase();
+    
+    // Get mower state and activity
     const activity = apiMower.attributes?.mower?.activity?.toLowerCase() || 'unknown';
+    const mowerState = apiMower.attributes?.mower?.state?.toLowerCase() || 'unknown';
+    const errorCode = apiMower.attributes?.mower?.errorCode || 0;
     let status: string;
     
-    switch (activity) {
-      case 'mowing':
-        status = 'mowing';
-        break;
-      case 'charging':
-        status = 'charging';
-        break;
-      case 'going_home':
-      case 'going home':
-        status = 'returning';
-        break;
-      case 'parked_in_cs':
-      case 'parked in cs':
-        status = 'parked';
-        break;
-      case 'stopped_in_garden':
-      case 'stopped in garden':
-        status = 'idle';
-        break;
-      case 'error':
-        status = 'error';
-        break;
-      case 'offline':
-        status = 'offline';
-        break;
-      default:
-        status = 'idle';
+    // Debug log for state and activity
+    console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} state info:`, {
+      connection: connectionStatusValue || 'unknown',
+      activity,
+      state: mowerState,
+      errorCode
+    });
+    
+    // Only mark as offline if explicitly disconnected
+    if (connectionStatusValue === 'disconnected') {
+      status = 'offline';
+      console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} marked as OFFLINE due to disconnected status`);
+    } 
+    // Check for error state - this takes precedence over activity
+    else if (errorCode > 0 || mowerState.includes('error') || mowerState === 'fatal_error') {
+      status = 'error';
+      console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} marked as ERROR due to error code or state`);
     }
+    // Check for power-related states
+    else if (mowerState === 'off') {
+      status = 'offline';
+      console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} marked as OFFLINE due to OFF state`);
+    }
+    // Check for paused state
+    else if (mowerState === 'paused') {
+      status = 'paused';
+      console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} marked as PAUSED`);
+    }
+    // For mowers with valid connection and no errors, determine by activity
+    else {
+      switch (activity) {
+        case 'mowing':
+          status = 'mowing';
+          break;
+        case 'charging':
+          status = 'charging';
+          break;
+        case 'going_home':
+        case 'going home':
+          status = 'returning';
+          break;
+        case 'parked_in_cs':
+        case 'parked in cs':
+          status = 'parked';
+          break;
+        case 'stopped_in_garden':
+        case 'stopped in garden':
+          status = 'idle';
+          break;
+        case 'leaving':
+          status = 'online';
+          break;
+        case 'not_applicable':
+          // For NOT_APPLICABLE activity, check state
+          if (mowerState === 'restricted') {
+            status = 'paused'; // Restricted means paused due to schedule
+          } else if (mowerState === 'in_operation') {
+            status = 'online'; // In operation but activity not applicable
+          } else if (mowerState === 'wait_updating' || mowerState === 'wait_power_up') {
+            status = 'idle'; // Waiting state
+          } else {
+            status = 'idle'; // Default for unknown states
+          }
+          break;
+        case 'offline':
+          status = 'offline';
+          break;
+        case 'unknown':
+          // For unknown activity, try to determine from state
+          if (mowerState === 'in_operation') {
+            status = 'online';
+          } else {
+            status = 'idle';
+          }
+          break;
+        default:
+          status = 'idle';
+      }
+    }
+
+    // Add debug logging for status determination
+    console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} final status: ${status}`);
 
     // Extract statistics if available
     const statistics = apiMower.attributes?.statistics ? {

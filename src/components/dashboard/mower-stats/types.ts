@@ -54,7 +54,7 @@ export interface MowerStatsProps {
   mowerId?: string;
   batteryLevel?: number;
   areaComplete?: string;
-  status?: 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked';
+  status?: 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused';
   currentZone?: string;
   metrics?: MowerMetric[];
   serviceHistory?: ServiceHistoryItem[];
