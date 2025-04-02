@@ -1,0 +1,46 @@
+
+> robotic-mower-agent@0.1.0 dev
+> next dev -p 3000
+
+   Γû▓ Next.js 15.2.4
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.68.58:3000
+   - Environments: .env.local
+
+ Γ£ô Starting...
+ Γ£ô Ready in 2s
+ Γùï Compiling /middleware ...
+ Γ¿» ./src/app/layout.tsx:4:1
+Module not found: Can't resolve '@/styles/globals.css'
+  2 | import type { Metadata } from "next";
+  3 | import { Inter as FontSans } from "next/font/google";
+> 4 | import "@/styles/globals.css";
+    | ^
+  5 | import { cn } from "@/lib/utils";
+  6 | import ClientLayout from '@/components/layout/ClientLayout';
+  7 |
+
+https://nextjs.org/docs/messages/module-not-found
+ Γ¿» ./src/app/layout.tsx:4:1
+Module not found: Can't resolve '@/styles/globals.css'
+  2 | import type { Metadata } from "next";
+  3 | import { Inter as FontSans } from "next/font/google";
+> 4 | import "@/styles/globals.css";
+    | ^
+  5 | import { cn } from "@/lib/utils";
+  6 | import ClientLayout from '@/components/layout/ClientLayout';
+  7 |
+
+https://nextjs.org/docs/messages/module-not-found
+ GET /_next/static/webpack/cea4b6b19b1b4621.webpack.hot-update.json 500 in 10877ms
+ ΓÜá Fast Refresh had to perform a full reload due to a runtime error.
+ HEAD / 500 in 5818ms
+ GET /dashboard 500 in 45ms
+ Γ£ô Compiled /_error in 1962ms (2592 modules)
+≡ƒöæ Husqvarna API client initialized, checking authentication status...
+ ΓÜá Fast Refresh had to perform a full reload due to a runtime error.
+ GET /dashboard 200 in 1722ms
+ Γ£ô Compiled in 2.2s (2592 modules)
+≡ƒöæ Husqvarna API client initialized, checking authentication status...
+≡ƒöæ Husqvarna API authentication status: Not authenticated
+≡ƒöæ Husqvarna API authentication status: Not authenticated

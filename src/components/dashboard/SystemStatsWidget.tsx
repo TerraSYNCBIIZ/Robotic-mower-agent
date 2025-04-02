@@ -1,21 +1,22 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowUpRight, Clock, Cpu, Database, MoveUpRight, RefreshCw, Server } from 'lucide-react';
+import { Server, Wifi, Database, RefreshCw, Activity, Clock } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 
-interface SystemStatsWidgetProps {
+export interface SystemStatsWidgetProps {
   className?: string;
-  lastUpdated: string;
+  lastUpdated?: string;
   onRefresh?: () => void;
   systemData?: {
-    apiResponseTime?: number;
-    networkLatency?: number;
-    connectedMowers?: number;
-    totalMowers?: number;
-    servicesStatus?: {
+    apiResponseTime: number;
+    networkLatency: number;
+    connectedMowers: number;
+    totalMowers: number;
+    servicesStatus: {
       api: boolean;
       websocket: boolean;
       database: boolean;
-    };
+    }
   }
 }
 
@@ -35,6 +36,31 @@ export function SystemStatsWidget({
     }
   }
 }: SystemStatsWidgetProps) {
+  const [lastFullRefresh, setLastFullRefresh] = useState<string>("Never");
+  
+  // Fetch last refresh info 
+  useEffect(() => {
+    const fetchLastRefreshInfo = async () => {
+      try {
+        // Get last refresh info from localStorage as a backup solution
+        // In production, you'd use Firebase properly
+        const storedRefreshInfo = localStorage.getItem('lastComprehensiveRefresh');
+        if (storedRefreshInfo) {
+          const refreshTime = new Date(storedRefreshInfo);
+          setLastFullRefresh(formatDistanceToNow(refreshTime, { addSuffix: true }));
+        }
+      } catch (error) {
+        console.error('Error fetching refresh info:', error);
+      }
+    };
+    
+    fetchLastRefreshInfo();
+    
+    // Set up a refresh interval (every 60 seconds)
+    const interval = setInterval(fetchLastRefreshInfo, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <Card className={`overflow-hidden rounded-xl shadow-sm h-full ${className}`}>
       <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
@@ -52,47 +78,80 @@ export function SystemStatsWidget({
         </button>
       </CardHeader>
       
-      <CardContent className="p-4 pt-0">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3 rounded-lg border bg-card/50">
-            <div className="flex justify-between items-start mb-2">
-              <Cpu className="w-3.5 h-3.5 text-muted-foreground" />
-              <MoveUpRight className="w-3.5 h-3.5 text-emerald-500" />
-            </div>
-            <div className="text-2xl font-light">{systemData.apiResponseTime} <span className="text-xs text-muted-foreground">ms</span></div>
-            <div className="text-xs text-muted-foreground">API Response</div>
+      <CardContent className="p-4 pt-0 space-y-4">
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <div className="p-2 rounded-md bg-secondary/30">
+            <p className="text-xs text-muted-foreground">Connected</p>
+            <p className="font-medium">{systemData.connectedMowers} / {systemData.totalMowers}</p>
           </div>
           
-          <div className="p-3 rounded-lg border bg-card/50">
-            <div className="flex justify-between items-start mb-2">
-              <Server className="w-3.5 h-3.5 text-muted-foreground" />
-              <ArrowUpRight className="w-3.5 h-3.5 text-blue-500" />
-            </div>
-            <div className="text-2xl font-light">{systemData.networkLatency} <span className="text-xs text-muted-foreground">ms</span></div>
-            <div className="text-xs text-muted-foreground">Network</div>
+          <div className="p-2 rounded-md bg-secondary/30">
+            <p className="text-xs text-muted-foreground">API Response</p>
+            <p className="font-medium">{systemData.apiResponseTime}ms</p>
           </div>
           
-          <div className="p-3 rounded-lg border bg-card/50">
-            <div className="flex justify-between items-start mb-2">
-              <Database className="w-3.5 h-3.5 text-muted-foreground" />
-              <span className={`text-xs ${systemData.servicesStatus?.database ? 'text-emerald-500' : 'text-red-500'}`}>
-                {systemData.servicesStatus?.database ? 'Online' : 'Offline'}
-              </span>
-            </div>
-            <div className="text-2xl font-light">{systemData.connectedMowers}
-              <span className="text-sm text-muted-foreground">/{systemData.totalMowers}</span>
-            </div>
-            <div className="text-xs text-muted-foreground">Connected Mowers</div>
+          <div className="p-2 rounded-md bg-secondary/30">
+            <p className="text-xs text-muted-foreground">Network</p>
+            <p className="font-medium">{systemData.networkLatency}ms</p>
           </div>
           
-          <div className="p-3 rounded-lg border bg-card/50">
-            <div className="flex justify-between items-start mb-2">
-              <Clock className="w-3.5 h-3.5 text-muted-foreground" />
-            </div>
-            <div className="text-xs text-muted-foreground mt-4">
-              Last Updated:
-            </div>
-            <div className="text-xs font-medium truncate">{lastUpdated}</div>
+          <div className="p-2 rounded-md bg-secondary/30">
+            <p className="text-xs text-muted-foreground">Basic Refresh</p>
+            <p className="font-medium">{lastUpdated || "N/A"}</p>
+          </div>
+        </div>
+        
+        {/* Full refresh info */}
+        <div className="mt-4 p-3 rounded-md border border-border">
+          <h3 className="text-sm font-medium mb-2 flex items-center">
+            <Activity className="w-3.5 h-3.5 mr-1" />
+            Comprehensive Data Status
+          </h3>
+          
+          <div className="flex items-center text-sm mb-2">
+            <Clock className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Last full refresh:</span>
+            <span className="ml-auto text-xs font-medium">
+              {lastFullRefresh}
+            </span>
+          </div>
+          
+          <p className="text-xs text-muted-foreground mt-1">
+            The refresh button updates all data from the Husqvarna API, including information that normally updates less frequently.
+          </p>
+        </div>
+        
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium mb-2">Service Status</h3>
+          
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center text-xs text-muted-foreground">
+              <Wifi className="h-3 w-3 mr-1" />
+              WebSocket
+            </span>
+            <span className={systemData.servicesStatus.websocket ? "text-green-500 text-xs" : "text-red-500 text-xs"}>
+              {systemData.servicesStatus.websocket ? "Online" : "Offline"}
+            </span>
+          </div>
+          
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center text-xs text-muted-foreground">
+              <Server className="h-3 w-3 mr-1" />
+              API Service
+            </span>
+            <span className={systemData.servicesStatus.api ? "text-green-500 text-xs" : "text-red-500 text-xs"}>
+              {systemData.servicesStatus.api ? "Online" : "Offline"}
+            </span>
+          </div>
+          
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center text-xs text-muted-foreground">
+              <Database className="h-3 w-3 mr-1" />
+              Database
+            </span>
+            <span className={systemData.servicesStatus.database ? "text-green-500 text-xs" : "text-red-500 text-xs"}>
+              {systemData.servicesStatus.database ? "Online" : "Offline"}
+            </span>
           </div>
         </div>
       </CardContent>

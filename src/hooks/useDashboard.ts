@@ -105,6 +105,8 @@ interface Mower {
   schedule?: ScheduleItem[];
   zones?: Array<{ name: string, color: string, workAreaId?: number }>;
   supportsAreaCompletion: boolean;
+  lastUpdated?: Date; // When the data was last updated
+  dataSource?: 'websocket' | 'api_poll' | 'dashboard_refresh' | string; // Source of the last update
 }
 
 // Get a random color for a zone
@@ -317,7 +319,9 @@ export const useDashboard = () => {
         { name: "Back Yard", color: "#ef4444" },
         { name: "Side Yard", color: "#f59e0b" }
       ],
-      supportsAreaCompletion
+      supportsAreaCompletion,
+      lastUpdated: new Date(), // Current time as update time
+      dataSource: 'api_poll' // Default data source is API poll
     };
   }, []);
   

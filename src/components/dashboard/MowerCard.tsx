@@ -1,7 +1,7 @@
 'use client';
 
 import React from "react";
-import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench } from "lucide-react";
+import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatDistanceToNow } from "date-fns";
 
 export interface MowerCardProps {
   name: string;
@@ -22,6 +24,8 @@ export interface MowerCardProps {
   id?: string;
   isSelected?: boolean;
   onSelect?: (id: string) => void;
+  lastUpdated?: Date;
+  dataSource?: 'websocket' | 'api_poll' | 'dashboard_refresh' | string;
 }
 
 export function MowerCard({
@@ -36,6 +40,8 @@ export function MowerCard({
   id,
   isSelected = false,
   onSelect,
+  lastUpdated,
+  dataSource,
 }: MowerCardProps) {
   const getStatusConfig = () => {
     switch (status) {
@@ -205,21 +211,55 @@ export function MowerCard({
         )}
       </CardContent>
 
-      <CardFooter className="p-4 pt-2 flex items-center justify-between">
-        <div className="flex items-center text-xs text-muted-foreground">
-          <Wrench className="mr-1 h-3 w-3" />
-          <span>Maintenance in {nextMaintenance} days</span>
+      <CardFooter className="p-4 pt-2 flex-col space-y-3">
+        <div className="w-full flex items-center justify-between">
+          <div className="flex items-center text-xs text-muted-foreground">
+            <Wrench className="mr-1 h-3 w-3" />
+            <span>Maintenance in {nextMaintenance} days</span>
+          </div>
+          
+          <Link href={`/chat?mower=${name}`}>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-xs h-8 px-2 text-primary"
+            >
+              Chat
+            </Button>
+          </Link>
         </div>
         
-        <Link href={`/chat?mower=${name}`}>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="text-xs h-8 px-2 text-primary"
-          >
-            Chat
-          </Button>
-        </Link>
+        {lastUpdated && (
+          <div className="w-full flex items-center justify-between border-t border-border pt-2">
+            <div className="flex items-center text-xs text-muted-foreground">
+              <RefreshCw className="mr-1 h-3 w-3" />
+              <span>Updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}</span>
+            </div>
+            
+            {dataSource && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-[10px] h-5 px-1 bg-secondary/30 hover:bg-secondary/40">
+                      {dataSource === 'websocket' ? 'Live' : 
+                       dataSource === 'api_poll' ? 'API' : 
+                       dataSource === 'dashboard_refresh' ? 'Full Refresh' : 
+                       dataSource}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent className="bg-popover border border-border text-popover-foreground">
+                    <p className="text-xs">
+                      {dataSource === 'websocket' ? 'Live WebSocket data' : 
+                       dataSource === 'api_poll' ? 'Regular API poll' : 
+                       dataSource === 'dashboard_refresh' ? 'Full dashboard refresh' : 
+                       `Source: ${dataSource}`}
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+          </div>
+        )}
       </CardFooter>
     </Card>
   );
