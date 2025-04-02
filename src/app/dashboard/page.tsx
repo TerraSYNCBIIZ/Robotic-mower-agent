@@ -17,6 +17,7 @@ import { Loader2, Plus, RefreshCw, X } from 'lucide-react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { WebSocketStatus } from '@/lib/husqvarna/websocket';
 import { SystemStatsWidget } from '@/components/dashboard/SystemStatsWidget';
+import { triggerComprehensiveDataRefresh } from './actions';
 
 // Define mower status type
 export type MowerStatus = 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked';
@@ -80,10 +81,37 @@ export default function DashboardPage() {
     if (dashboard.isLoading) return;
     
     try {
+      // Show loading notification
+      const loadingToast = toast.loading('Refreshing mower data...');
+      
+      // 1. First trigger comprehensive data refresh from the Husqvarna API
+      const refreshResult = await triggerComprehensiveDataRefresh();
+      
+      // 2. Then fetch the latest data from our API/database
       await dashboard.fetchMowers();
-      setLastUpdated(new Date().toLocaleTimeString());
-      toast.success('Mower data refreshed');
-    } catch {
+      
+      // Update last updated time and show success message
+      const currentTime = new Date();
+      setLastUpdated(currentTime.toLocaleTimeString());
+      
+      // Store the time of the comprehensive refresh in localStorage 
+      // so the SystemStatsWidget can display it
+      if (refreshResult.success) {
+        localStorage.setItem('lastComprehensiveRefresh', currentTime.toISOString());
+      }
+      
+      // Dismiss loading toast
+      toast.dismiss(loadingToast);
+      
+      // Show appropriate success message
+      if (refreshResult.success) {
+        toast.success('Complete data refresh initiated');
+      } else {
+        // Still show success for the basic refresh even if comprehensive failed
+        toast.success('Basic mower data refreshed');
+      }
+    } catch (error) {
+      console.error('Refresh error:', error);
       toast.error('Failed to refresh data');
     }
   };
@@ -274,7 +302,7 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
-    
+      
       {/* Map and widgets section */}
       <div className="grid grid-cols-1 md:grid-cols-12 px-4 py-4 gap-4">
         {/* Map container - takes up left side */}
@@ -338,6 +366,8 @@ export default function DashboardPage() {
               imageSrc={`/images/mower-${mower.status === 'error' ? 'red' : 'gray'}.png`}
               isSelected={selectedMower === mower.id}
               onSelect={handleMowerSelect}
+              lastUpdated={mower.lastUpdated}
+              dataSource={mower.dataSource || 'unknown'}
             />
           ))
         ) : (
