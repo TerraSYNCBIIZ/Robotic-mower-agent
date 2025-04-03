@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/layout/AuthProvider';
 import { Loader2 } from 'lucide-react';
+import { refreshApiAuthentication } from '@/lib/husqvarna/api-client';
 
 export default function AuthCallbackPage() {
   const [isProcessing, setIsProcessing] = useState(true);
@@ -34,6 +35,10 @@ export default function AuthCallbackPage() {
       // Call login to store the tokens in localStorage and cookies
       login(accessToken, refreshToken || '');
       
+      // IMPORTANT: Explicitly initialize the API client with the new token
+      console.log('Auth callback: Explicitly refreshing API authentication');
+      refreshApiAuthentication();
+      
       // Mark as processed before redirecting
       setIsProcessed(true);
       setIsProcessing(false);
@@ -41,8 +46,10 @@ export default function AuthCallbackPage() {
       // Redirect to the intended destination after a short delay
       // to ensure state updates are complete
       setTimeout(() => {
+        // Force API initialization one more time just before navigation
+        refreshApiAuthentication();
         router.push(redirectTo);
-      }, 100);
+      }, 500); // Increased delay to ensure authentication is complete
     } catch (err) {
       console.error('Error processing authentication callback:', err);
       setError('Failed to process authentication. Please try again.');
@@ -65,7 +72,7 @@ export default function AuthCallbackPage() {
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
           <p className="text-lg font-medium">Completing authentication...</p>
         </div>
-      ) : (
+      ) : error ? (
         <div className="flex flex-col items-center gap-4 max-w-md text-center">
           <div className="p-4 bg-red-50 rounded-md border border-red-200 text-red-700">
             <p className="text-lg font-medium mb-2">Authentication Error</p>
@@ -79,7 +86,7 @@ export default function AuthCallbackPage() {
             Return to Login
           </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
 } 

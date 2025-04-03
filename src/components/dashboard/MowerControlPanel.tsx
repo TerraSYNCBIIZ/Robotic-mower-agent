@@ -11,7 +11,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useEffect, useState } from "react"
 
 interface MowerStatus {
-  status: 'mowing' | 'paused' | 'parked' | 'charging' | 'idle' | 'error'
+  status: 'mowing' | 'paused' | 'parked' | 'charging' | 'idle' | 'error' | 'offline'
   batteryLevel: number
   lastActive: string
   nextScheduled: string | null
@@ -59,6 +59,8 @@ const getStatusBadge = (status: MowerStatus['status']) => {
       return <Badge variant="outline">Idle</Badge>
     case 'error':
       return <Badge variant="destructive">Error</Badge>
+    case 'offline':
+      return <Badge variant="outline" className="border-gray-500 text-gray-500">Offline</Badge>
     default:
       return <Badge variant="outline">Unknown</Badge>
   }
@@ -113,37 +115,108 @@ export function MowerControlPanel({
 
   // Fetch mower data when mowerId changes
   useEffect(() => {
-    const fetchMowerData = async () => {
-      if (!mowerId) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        // This would typically be an API call, but for simplicity we'll create mock data
-        // In a real implementation, you would fetch this data from your API
-        
-        // Mock data for demonstration
-        const mockData = {
-          name: `Automower ${mowerId.substring(0, 4)}`,
-          status: {
-            status: 'parked' as MowerStatus['status'],
-            batteryLevel: 85,
-            lastActive: new Date().toLocaleString(),
-            nextScheduled: new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString(),
+    // Import the mowerDataService here to prevent circular dependencies
+    import('@/lib/mowerDataService').then(({ mowerDataService }) => {
+      const fetchMowerData = async () => {
+        if (!mowerId) {
+          setLoading(false);
+          return;
+        }
+  
+        try {
+          setLoading(true);
+          
+          // Try to get real mower data from the mowerDataService
+          const data = mowerDataService.getMowerData(mowerId);
+          
+          if (data) {
+            console.log(`[MowerControlPanel] Got data for mower ${mowerId}:`, data);
+            
+            // Map the status using the correct helper
+            const { uiStatus } = mowerDataService.updateMowerUIStatus(mowerId, data);
+            
+            // Create properly formatted data for the component
+            const formattedData = {
+              name: data.system?.name || `Mower ${mowerId.substring(0, 4)}`,
+              status: {
+                // Convert the UI status to MowerStatus format
+                status: (uiStatus === 'offline' || uiStatus === 'returning' || 
+                  uiStatus === 'leaving') 
+                  ? (uiStatus === 'returning' ? 'parked' : 
+                     uiStatus === 'leaving' ? 'idle' : 
+                     uiStatus === 'offline' ? 'offline' as MowerStatus['status'] : 'idle' as MowerStatus['status']) 
+                  : uiStatus as MowerStatus['status'],
+                batteryLevel: data.battery?.batteryPercent || 0,
+                lastActive: data.lastUpdated 
+                  ? new Date(data.lastUpdated).toLocaleString() 
+                  : 'Unknown',
+                nextScheduled: null,
+                errorMessage: data.mower?.errorCode && data.mower.errorCode > 0 
+                  ? `Error code: ${data.mower.errorCode}` 
+                  : undefined
+              }
+            };
+            
+            // Check for schedule data and add next scheduled time if available
+            if (data.planner && typeof data.planner === 'object' && 'nextStartTimestamp' in data.planner) {
+              formattedData.status.nextScheduled = new Date(data.planner.nextStartTimestamp as number).toLocaleString();
+            }
+            
+            setMowerData(formattedData);
+          } else {
+            // Fallback to mock data if real data is not available
+            console.log(`[MowerControlPanel] No data found for mower ${mowerId}, using mock data`);
+            const mockData = {
+              name: `Automower ${mowerId.substring(0, 4)}`,
+              status: {
+                status: 'parked' as MowerStatus['status'],
+                batteryLevel: 85,
+                lastActive: new Date().toLocaleString(),
+                nextScheduled: new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString(),
+              }
+            };
+            setMowerData(mockData);
           }
-        };
-
-        setMowerData(mockData);
-      } catch (error) {
-        console.error("Failed to fetch mower data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMowerData();
+        } catch (error) {
+          console.error("[MowerControlPanel] Failed to fetch mower data:", error);
+          
+          // Fallback to a simple offline state
+          setMowerData({
+            name: `Mower ${mowerId.substring(0, 4)}`,
+            status: {
+              status: 'offline' as MowerStatus['status'],
+              batteryLevel: 0,
+              lastActive: 'Unknown',
+              nextScheduled: null,
+            }
+          });
+        } finally {
+          setLoading(false);
+        }
+      };
+  
+      fetchMowerData();
+      
+      // Set up a listener for mower data updates
+      const handleMowerDataUpdate = (event: Event) => {
+        const customEvent = event as CustomEvent;
+        if (!customEvent.detail) return;
+        
+        const { mowerId: updatedMowerId } = customEvent.detail;
+        if (updatedMowerId === mowerId) {
+          console.log(`[MowerControlPanel] Received update for mower ${mowerId}`);
+          fetchMowerData();
+        }
+      };
+      
+      // Add listener for mower data updates
+      window.addEventListener('mower-data-updated', handleMowerDataUpdate);
+      
+      // Clean up listener when component unmounts
+      return () => {
+        window.removeEventListener('mower-data-updated', handleMowerDataUpdate);
+      };
+    });
   }, [mowerId]);
 
   if (loading || !mowerData) {
@@ -165,11 +238,11 @@ export function MowerControlPanel({
   }
 
   // Handler functions that map to the onCommand prop
-  const handleStart = () => onCommand('start');
-  const handlePause = () => onCommand('pause');
-  const handleParkUntilNext = () => onCommand('park_until_next_task');
-  const handleParkUntilFurtherNotice = () => onCommand('park_until_further_notice');
-  const handleResumeSchedule = () => onCommand('resume_schedule');
+  const handleStart = () => onCommand('Start');
+  const handlePause = () => onCommand('Pause');
+  const handleParkUntilNext = () => onCommand('ParkUntilNextSchedule');
+  const handleParkUntilFurtherNotice = () => onCommand('ParkUntilFurtherNotice');
+  const handleResumeSchedule = () => onCommand('ResumeSchedule');
   const handleRefresh = () => onCommand('refresh');
 
   // Render the original component with the adapted props
@@ -205,6 +278,10 @@ export function MowerControlPanelOriginal({
   const isMowing = status.status === 'mowing'
   const isPaused = status.status === 'paused'
   const isParked = status.status === 'parked'
+  const isOffline = status.status === 'offline'
+  
+  // Disable all buttons if mower is offline
+  const disableAllControls = isOffline || isError;
   
   return (
     <Card className={`overflow-hidden border-border bg-background text-foreground shadow-lg ${className}`}>
@@ -234,6 +311,9 @@ export function MowerControlPanelOriginal({
             {getStatusBadge(status.status)}
             {isError && (
               <span className="text-xs text-destructive">{status.errorMessage}</span>
+            )}
+            {isOffline && (
+              <span className="text-xs text-gray-500">Not connected</span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
@@ -280,7 +360,7 @@ export function MowerControlPanelOriginal({
                 variant={isMowing ? "secondary" : "default"}
                 className="flex items-center gap-2"
                 onClick={onStart}
-                disabled={isMowing || isCharging || isError}
+                disabled={isMowing || isCharging || disableAllControls}
               >
                 <Play className="h-4 w-4" />
                 Start
@@ -290,7 +370,7 @@ export function MowerControlPanelOriginal({
                 variant="outline"
                 className="flex items-center gap-2"
                 onClick={onPause}
-                disabled={isPaused || isParked || isCharging || isError}
+                disabled={isPaused || isParked || isCharging || disableAllControls}
               >
                 <Pause className="h-4 w-4" />
                 Pause
@@ -300,7 +380,7 @@ export function MowerControlPanelOriginal({
                 variant="outline"
                 className="flex items-center gap-2"
                 onClick={onParkUntilNext}
-                disabled={isParked || isCharging || isError}
+                disabled={isParked || isCharging || disableAllControls}
               >
                 <Home className="h-4 w-4" />
                 Park Until Next
@@ -310,7 +390,7 @@ export function MowerControlPanelOriginal({
                 variant="outline"
                 className="flex items-center gap-2"
                 onClick={onParkUntilFurtherNotice}
-                disabled={isParked || isCharging || isError}
+                disabled={isParked || isCharging || disableAllControls}
               >
                 <PowerOff className="h-4 w-4" />
                 Park Until Notice
@@ -322,7 +402,7 @@ export function MowerControlPanelOriginal({
                 variant="secondary"
                 className="w-full flex items-center justify-center gap-2"
                 onClick={onResumeSchedule}
-                disabled={isMowing || isCharging || isError}
+                disabled={isMowing || isCharging || disableAllControls}
               >
                 <RefreshCw className="h-4 w-4" />
                 Resume Schedule
@@ -336,8 +416,8 @@ export function MowerControlPanelOriginal({
         <div className="flex w-full items-center justify-between text-xs text-muted-foreground">
           <span>Husqvarna Automower</span>
           <div className="flex items-center gap-1">
-            <Power className="h-3 w-3" />
-            <span>Connected</span>
+            <Power className={`h-3 w-3 ${isOffline ? 'text-gray-400' : ''}`} />
+            <span>{isOffline ? 'Disconnected' : 'Connected'}</span>
           </div>
         </div>
       </CardFooter>

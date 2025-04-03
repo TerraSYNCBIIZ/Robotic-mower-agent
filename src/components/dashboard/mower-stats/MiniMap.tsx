@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Maximize2, Minimize2, Battery, Crop } from "lucide-react";
 import { 
   Dialog, 
@@ -14,12 +14,21 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { GoogleMapView } from "@/components/dashboard/GoogleMapView";
 import type { MiniMapProps } from "./types";
+import { useAuth } from '@/components/layout/AuthProvider';
+import { getMowerData } from '@/lib/firestoreDB';
 
 export function MiniMap({ mowerId, currentZone, batteryLevel, areaComplete }: MiniMapProps) {
   const [fullScreen, setFullScreen] = useState(false);
-  
-  // Mock mower location for the map using the format expected by GoogleMapView
-  const mowerLocation = {
+  const [mowerLocation, setMowerLocation] = useState<{
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    direction: number;
+    batteryLevel: number;
+    areaComplete: string;
+    status: "mowing" | "charging" | "idle" | "error" | "offline" | "returning" | "parked" | "online" | "paused";
+  }>({
     id: mowerId || "default-mower",
     name: "Mower",
     lat: 40.712776, // Default coordinates
@@ -27,20 +36,105 @@ export function MiniMap({ mowerId, currentZone, batteryLevel, areaComplete }: Mi
     direction: 45,
     batteryLevel: batteryLevel || 75,
     areaComplete: areaComplete || "65%",
-    status: "mowing" as const,
-  };
-
-  // Calculate battery color based on level
-  const getBatteryColor = (level: number) => {
+    status: "parked" as const, // Default status
+  });
+  
+  const { token } = useAuth();
+  
+  // Use a ref to track whether we've already fetched data
+  const hasFetchedRef = React.useRef(false);
+  
+  // Fetch mower data from Firebase instead of API - use stable dependency array
+  useEffect(() => {
+    if (!mowerId || hasFetchedRef.current) return;
+    
+    const fetchMowerFromFirebase = async () => {
+      try {
+        hasFetchedRef.current = true;
+        
+        // Use the utility function to get mower data from Firestore
+        const result = await getMowerData(mowerId);
+        
+        if (result.success && result.data) {
+          const mowerData = result.data;
+          
+          // Check if we have position data
+          if (mowerData.position && mowerData.position.latitude && mowerData.position.longitude) {
+            // Get mower activity and state for status determination
+            let status: "mowing" | "charging" | "idle" | "error" | "offline" | "returning" | "parked" | "online" | "paused" = "parked";
+            
+            // Determine status based on mower data
+            if (mowerData.mower) {
+              const mowerState = mowerData.mower.state?.toLowerCase();
+              const activity = mowerData.mower.activity?.toLowerCase();
+              
+              if (mowerData.mower.errorCode > 0) {
+                status = 'error';
+              } else if (activity === 'mowing') {
+                status = 'mowing';
+              } else if (activity === 'charging') {
+                status = 'charging';
+              } else if (activity === 'going_home' || activity === 'going home') {
+                status = 'returning';
+              } else if (activity === 'parked_in_cs' || activity === 'parked in cs') {
+                status = 'parked';
+              } else if (activity === 'stopped_in_garden' || activity === 'stopped in garden') {
+                status = 'idle';
+              } else if (mowerState === 'paused') {
+                status = 'paused';
+              } else if (activity === 'leaving') {
+                status = 'online';
+              } else {
+                status = 'idle';
+              }
+            }
+            
+            // Update the mower location state with actual coordinates and status
+            setMowerLocation({
+              id: mowerId,
+              name: mowerData.name || "Mower",
+              lat: mowerData.position.latitude,
+              lng: mowerData.position.longitude,
+              direction: 45, // Direction is typically not provided
+              // Use props value first, fall back to Firebase data
+              batteryLevel: batteryLevel ?? (mowerData.battery?.batteryPercent || 75),
+              areaComplete: areaComplete ?? "0%",
+              status: status
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching mower data from Firebase:', error);
+        // Keep using default values on error
+      }
+    };
+    
+    fetchMowerFromFirebase();
+  }, [mowerId]);
+  
+  // Calculate battery color based on level - memoize to prevent recreation
+  const getBatteryColor = React.useCallback((level: number) => {
     if (level > 60) return "bg-emerald-500";
     if (level > 30) return "bg-amber-500";
     return "bg-red-500";
-  };
+  }, []);
 
-  // Parse percentage from areaComplete
-  const parsePercentage = (value?: string) => {
+  // Parse percentage from areaComplete - memoize to prevent recreation
+  const parsePercentage = React.useCallback((value?: string) => {
     return value ? Number.parseInt(value.replace('%', '').trim()) : 0;
-  };
+  }, []);
+  
+  // Update battery level and area complete when props change without refetching
+  useEffect(() => {
+    setMowerLocation(prev => ({
+      ...prev,
+      batteryLevel: batteryLevel ?? prev.batteryLevel,
+      areaComplete: areaComplete ?? prev.areaComplete
+    }));
+  }, [batteryLevel, areaComplete]);
+
+  // Memoize the mower data for GoogleMapView to prevent unnecessary rerenders
+  const mowerData = React.useMemo(() => [mowerLocation], [mowerLocation]);
 
   return (
     <>
@@ -48,8 +142,10 @@ export function MiniMap({ mowerId, currentZone, batteryLevel, areaComplete }: Mi
         {/* Use GoogleMapView component directly now */}
         <GoogleMapView 
           height="100%"
-          mowers={[mowerLocation]}
+          mowers={mowerData}
           className="w-full h-full"
+          zoom={19} // Increase zoom level to see the mower better
+          center={{ lat: mowerLocation.lat, lng: mowerLocation.lng }} // Center on the mower's location
         />
         
         {/* Zone label */}
@@ -75,14 +171,16 @@ export function MiniMap({ mowerId, currentZone, batteryLevel, areaComplete }: Mi
       <Dialog open={fullScreen} onOpenChange={setFullScreen}>
         <DialogContent className="max-w-5xl h-[80vh] p-0 overflow-hidden">
           <DialogHeader className="sr-only">
-            <DialogTitle>Property Map</DialogTitle>
+            <DialogTitle>Mower Location Map</DialogTitle>
             <DialogDescription>View your mower location on the property map</DialogDescription>
           </DialogHeader>
           <div className="relative w-full h-full">
             <GoogleMapView 
               height="100%" 
-              mowers={[mowerLocation]}
+              mowers={mowerData}
               className="w-full h-full"
+              zoom={19} // Increase zoom level for fullscreen view too
+              center={{ lat: mowerLocation.lat, lng: mowerLocation.lng }} // Center on the mower's location
             />
             
             {/* Minimize button - overlaid directly on map */}

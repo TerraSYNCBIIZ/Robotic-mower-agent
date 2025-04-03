@@ -42,85 +42,148 @@ export async function POST(
       );
     }
     
-    // Get params from request
+    // Get request body
     const requestBody = await req.json();
     console.log("Request body:", requestBody);
-    const { command, duration } = requestBody;
     
-    if (!command) {
-      return NextResponse.json(
-        { error: "Command is required" },
-        { status: 400 }
-      );
-    }
-    
-    // Create client with the token
-    const client = new HusqvarnaClient(accessToken);
-    console.log("Client created, authenticated:", client.isAuthenticated());
-    
-    // Ensure client is authenticated
-    if (!client.isAuthenticated()) {
-      // Handle authentication error
-      return NextResponse.json(
-        { error: "Not authenticated", authRequired: true },
-        { status: 401 }
-      );
-    }
-    
-    // Map command to Husqvarna API command
-    let apiCommand: string;
-    let attributes: Record<string, unknown> = {};
-    
-    switch (command) {
-      case 'play':
-      case 'start':
-        apiCommand = 'Start';
-        if (duration) {
-          attributes = { duration };
-        }
-        break;
-      case 'pause':
-        apiCommand = 'Pause';
-        break;
-      case 'home':
-      case 'park':
-        if (duration) {
-          apiCommand = 'Park';
-          attributes = { duration };
-        } else {
-          apiCommand = 'ParkUntilFurtherNotice';
-        }
-        break;
-      case 'parkUntilNext':
-        apiCommand = 'ParkUntilNextSchedule';
-        break;
-      case 'resumeSchedule':
-        apiCommand = 'ResumeSchedule';
-        break;
-      default:
+    // Check if it's a legacy format or new format
+    if (requestBody.command) {
+      // Legacy format - convert to new format
+      const { command, duration } = requestBody;
+      
+      if (!command) {
         return NextResponse.json(
-          { error: "Invalid command", valid: ['play', 'start', 'pause', 'home', 'park', 'parkUntilNext', 'resumeSchedule'] },
+          { error: "Command is required" },
           { status: 400 }
         );
-    }
-    
-    // Send command to mower
-    try {
-      await client.sendCommand(mowerId, apiCommand, Object.keys(attributes).length > 0 ? attributes : undefined);
+      }
       
-      return NextResponse.json({
-        success: true,
-        message: `Command '${command}' sent successfully to mower '${mowerId}'`
-      });
-    } catch (apiError) {
-      console.error("Husqvarna API error:", apiError);
-      return NextResponse.json(
-        { 
-          error: "Failed to send command to Husqvarna API", 
-          details: apiError instanceof Error ? apiError.message : "Unknown error" 
-        },
-        { status: 500 }
-      );
+      // Map command to Husqvarna API command
+      let apiCommand: string;
+      let attributes: Record<string, unknown> = {};
+      
+      switch (command) {
+        case 'play':
+        case 'start':
+          apiCommand = 'Start';
+          if (duration) {
+            attributes = { duration };
+          }
+          break;
+        case 'pause':
+          apiCommand = 'Pause';
+          break;
+        case 'home':
+        case 'park':
+          if (duration) {
+            apiCommand = 'Park';
+            attributes = { duration };
+          } else {
+            apiCommand = 'ParkUntilFurtherNotice';
+          }
+          break;
+        case 'parkUntilNext':
+          apiCommand = 'ParkUntilNextSchedule';
+          break;
+        case 'resumeSchedule':
+          apiCommand = 'ResumeSchedule';
+          break;
+        default:
+          return NextResponse.json(
+            { error: "Invalid command", valid: ['play', 'start', 'pause', 'home', 'park', 'parkUntilNext', 'resumeSchedule'] },
+            { status: 400 }
+          );
+      }
+      
+      // Create client with the token
+      const client = new HusqvarnaClient(accessToken);
+      console.log("Client created, authenticated:", client.isAuthenticated());
+      
+      // Ensure client is authenticated
+      if (!client.isAuthenticated()) {
+        // Handle authentication error
+        return NextResponse.json(
+          { error: "Not authenticated", authRequired: true },
+          { status: 401 }
+        );
+      }
+      
+      // Send command to mower
+      try {
+        await client.sendCommand(mowerId, apiCommand, Object.keys(attributes).length > 0 ? attributes : undefined);
+        
+        return NextResponse.json({
+          success: true,
+          message: `Command '${command}' sent successfully to mower '${mowerId}'`
+        });
+      } catch (apiError) {
+        console.error("Husqvarna API error:", apiError);
+        return NextResponse.json(
+          { 
+            error: "Failed to send command to Husqvarna API", 
+            details: apiError instanceof Error ? apiError.message : "Unknown error" 
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      // New format - direct Husqvarna API format
+      // Validate the request structure
+      if (!requestBody.data || !requestBody.data.type) {
+        return NextResponse.json(
+          { error: "Invalid request format. Required: data.type property." },
+          { status: 400 }
+        );
+      }
+      
+      // Get command and attributes from request body
+      const command = requestBody.data.type;
+      const attributes = requestBody.data.attributes;
+      
+      // Validate command
+      const validCommands = [
+        'Start', 'StartInWorkArea', 'ResumeSchedule', 
+        'Pause', 'Park', 'ParkUntilNextSchedule', 'ParkUntilFurtherNotice'
+      ];
+      
+      if (!validCommands.includes(command)) {
+        return NextResponse.json(
+          { error: "Invalid command", valid: validCommands },
+          { status: 400 }
+        );
+      }
+      
+      // Create client with the token
+      const client = new HusqvarnaClient(accessToken);
+      console.log("Client created, authenticated:", client.isAuthenticated());
+      
+      // Ensure client is authenticated
+      if (!client.isAuthenticated()) {
+        // Handle authentication error
+        return NextResponse.json(
+          { error: "Not authenticated", authRequired: true },
+          { status: 401 }
+        );
+      }
+      
+      // Send command to mower
+      try {
+        await client.sendCommand(mowerId, command, attributes);
+        
+        return NextResponse.json({
+          success: true,
+          message: `Command '${command}' sent successfully to mower '${mowerId}'`
+        });
+      } catch (apiError) {
+        console.error("Husqvarna API error:", apiError);
+        return NextResponse.json(
+          { 
+            error: "Failed to send command to Husqvarna API", 
+            details: apiError instanceof Error ? apiError.message : "Unknown error" 
+          },
+          { status: 500 }
+        );
+      }
     }
   } catch (error) {
     console.error("Error controlling mower:", error);

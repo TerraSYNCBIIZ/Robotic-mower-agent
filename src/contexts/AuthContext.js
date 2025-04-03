@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getHusqvarnaToken } from '../lib/husqvarnaApi';
+import { husqvarnaApi } from '@/lib/husqvarna/api-client';
 
 // Create the context
 const AuthContext = createContext();
@@ -20,19 +20,28 @@ export const AuthProvider = ({ children }) => {
       try {
         setLoading(true);
         
-        // Get a token from Husqvarna API
-        const husqvarnaToken = await getHusqvarnaToken();
+        // Get a token from local storage - used by the new API client
+        const localToken = localStorage.getItem('mowerAccessToken');
         
-        // Set the token in state
-        setToken(husqvarnaToken);
-        
-        // For now, we don't have a real user, so create a placeholder
-        setUser({
-          id: 'default-user',
-          authenticated: true
-        });
-        
-        setError(null);
+        if (localToken) {
+          // Set the token in state
+          setToken(localToken);
+          
+          // Also ensure the API client is using this token
+          husqvarnaApi.setAccessToken(localToken);
+          
+          // For now, we don't have a real user, so create a placeholder
+          setUser({
+            id: 'default-user',
+            authenticated: true
+          });
+          
+          setError(null);
+        } else {
+          setError('No authentication token found');
+          setToken(null);
+          setUser(null);
+        }
       } catch (err) {
         console.error('Authentication error:', err);
         setError('Failed to authenticate with Husqvarna API');
@@ -45,20 +54,11 @@ export const AuthProvider = ({ children }) => {
     
     initAuth();
     
-    // Set up token refresh interval (tokens expire after 60 minutes)
-    const refreshInterval = setInterval(async () => {
-      try {
-        const newToken = await getHusqvarnaToken();
-        setToken(newToken);
-        console.log('Husqvarna token refreshed');
-      } catch (err) {
-        console.error('Token refresh error:', err);
-        setError('Failed to refresh authentication token');
-      }
-    }, 45 * 60 * 1000); // Refresh every 45 minutes
+    // We don't need a refresh interval now as tokens are handled by the API client
+    // and the user login flow
     
     return () => {
-      clearInterval(refreshInterval);
+      // No cleanup needed
     };
   }, []);
   

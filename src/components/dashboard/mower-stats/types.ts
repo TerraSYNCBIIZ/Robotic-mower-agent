@@ -36,37 +36,58 @@ export interface MaintenanceItem {
 export interface TimeSlot {
   startTime: string;
   endTime: string;
-  zones: {
+  zones: Array<{
     name: string;
     color: string;
-  }[];
+    id?: string;
+  }>;
+  day?: string;
+  slots?: Array<{
+    start: number;
+    duration: number;
+  }>;
 }
 
 export interface ScheduleItem {
-  day: string;
-  timeSlots: TimeSlot[];
+  day?: string;
+  timeSlots?: TimeSlot[];
+  zone?: {
+    name: string;
+    color: string;
+  };
 }
 
 export interface MowerStatsProps {
+  mowerId?: string;
   mowerName?: string;
   mowerModel?: string;
   mowerImage?: string;
-  mowerId?: string;
+  mowerStatus?: 'idle' | 'mowing' | 'charging' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused' | 'leaving';
   batteryLevel?: number;
   areaComplete?: string;
-  status?: 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused';
   currentZone?: string;
-  metrics?: MowerMetric[];
+  schedule?: ScheduleItem[];
   serviceHistory?: ServiceHistoryItem[];
   recentAlerts?: AlertItem[];
   chatHistory?: ChatItem[];
   upcomingMaintenance?: MaintenanceItem[];
-  schedule?: ScheduleItem[];
-  zones?: Array<{name: string, color: string, workAreaId?: number}>;
+  metrics?: MowerMetric[];
+  mowerZones?: { name: string; color: string }[];
   className?: string;
   hideTopCard?: boolean;
+  onCommand?: (command: string, duration?: number, workAreaId?: number) => Promise<any>;
   supportsAreaCompletion?: boolean;
-  onCommand?: (command: string, duration?: number) => Promise<{ success: boolean; message?: string } | null>;
+  workAreas?: Array<{
+    name?: string;
+    workAreaId?: number;
+    cuttingHeight?: number;
+    enabled?: boolean;
+    progress?: number;
+    lastCompleted?: number | string;
+  }>;
+  zones?: { name: string; color: string; workAreaId?: number }[];
+  nextStartTime?: string;
+  customScheduleComponent?: ReactNode;
 }
 
 export interface ToastProps {
@@ -78,8 +99,15 @@ export interface ToastProps {
 export interface ZoneSelectionDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  zones: { name: string; color: string }[];
-  onSelectZone: (zone: string) => void;
+  zones: { name: string; color: string; workAreaId?: number }[];
+  onSelectZone: (zone: string, workAreaId?: number) => void;
+}
+
+export interface DurationSelectionDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  selectedZone: { name: string; workAreaId?: number } | null;
+  onSelectDuration: (duration: number, command: 'Start' | 'StartInWorkArea' | 'ResumeSchedule' | 'ParkUntilNextSchedule' | 'ParkUntilFurtherNotice') => void;
 }
 
 export interface MiniMapProps {
@@ -91,6 +119,8 @@ export interface MiniMapProps {
 
 export interface ScheduleViewProps {
   schedule?: ScheduleItem[];
+  mowerId?: string;
+  onScheduleRefresh?: () => void;
 }
 
 export interface BatteryLevelProps {
@@ -99,8 +129,13 @@ export interface BatteryLevelProps {
 
 export interface AreaCompletionProps {
   value?: string;
+  mowerId?: string;
 }
 
 export interface StatusIndicatorProps {
-  status: string;
+  status?: string;
+  isPending?: boolean;
+  pendingDescription?: string;
+  batteryLevel?: number;
+  isChargingWhileParked?: boolean;
 } 

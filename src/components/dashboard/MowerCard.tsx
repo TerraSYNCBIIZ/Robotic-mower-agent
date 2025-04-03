@@ -1,7 +1,7 @@
 'use client';
 
-import React from "react";
-import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw, Tag } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw, Tag, AlertTriangle, BatteryCharging, Home, CornerDownLeft, CornerUpRight, Wifi } from "lucide-react";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatDistanceToNow } from "date-fns/formatDistanceToNow";
+import { getTimeAgo } from '@/lib/utils';
+import { MowerAreaCompletion } from "./MowerAreaCompletion";
 
 export interface Category {
   id: string;
@@ -20,7 +22,7 @@ export interface Category {
 
 export interface MowerCardProps {
   name: string;
-  status: "idle" | "mowing" | "charging" | "error" | "offline" | "returning" | "parked" | "online" | "paused";
+  status: "idle" | "mowing" | "charging" | "error" | "offline" | "returning" | "parked" | "online" | "paused" | "leaving";
   batteryLevel: number;
   areaComplete: string;
   nextMaintenance: number;
@@ -31,9 +33,47 @@ export interface MowerCardProps {
   isSelected?: boolean;
   onSelect?: (id: string) => void;
   lastUpdated?: Date;
+  lastChanged?: Date | number;
+  showChangedTimeOnly?: boolean;
   dataSource?: 'websocket' | 'api_poll' | 'dashboard_refresh' | string;
   categories?: Category[];
+  pendingCommand?: {
+    command: string;
+    sentAt: Date;
+    description?: string;
+  };
+  isChargingWhileParked?: boolean;
+  nextStartTime?: string;
 }
+
+// Add this ChargingIndicator component
+const ChargingIndicator = ({ batteryLevel }: { batteryLevel: number }) => {
+  return (
+    <div className="mt-2 p-2 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center">
+      <div className="mr-2 relative">
+        <BatteryCharging className="h-4 w-4 text-blue-500" />
+        <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-blue-500 animate-pulse"></span>
+      </div>
+      <div className="flex-1">
+        <p className="text-xs text-blue-500 font-medium">Charging</p>
+        <p className="text-xs text-muted-foreground">Battery at {batteryLevel}%</p>
+      </div>
+    </div>
+  );
+};
+
+// Add this component for the red offline dot
+const OfflineIndicator = () => {
+  return (
+    <div className="flex items-center">
+      <span className="relative flex h-3 w-3 mr-1">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600"></span>
+      </span>
+      <span className="text-xs font-medium text-red-600">Offline</span>
+    </div>
+  );
+};
 
 export function MowerCard({
   name,
@@ -48,9 +88,46 @@ export function MowerCard({
   isSelected = false,
   onSelect,
   lastUpdated,
+  lastChanged,
+  showChangedTimeOnly = true,
   dataSource,
   categories = [],
+  pendingCommand,
+  isChargingWhileParked,
+  nextStartTime,
 }: MowerCardProps) {
+  // Add state to track area completion locally for better persistence
+  const [localAreaComplete, setLocalAreaComplete] = useState<string>(areaComplete || 'N/A');
+  
+  // Update local state when prop changes
+  useEffect(() => {
+    if (areaComplete && areaComplete !== 'N/A') {
+      setLocalAreaComplete(areaComplete);
+    }
+  }, [areaComplete]);
+  
+  // Listen for area completion update events
+  useEffect(() => {
+    if (!id) return;
+    
+    const handleAreaCompletionUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail?.mowerId === id) {
+        setLocalAreaComplete(customEvent.detail.areaComplete);
+      }
+    };
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mower-area-completion-updated', handleAreaCompletionUpdate);
+    }
+    
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('mower-area-completion-updated', handleAreaCompletionUpdate);
+      }
+    };
+  }, [id]);
+
   const getStatusConfig = () => {
     switch (status) {
       case "mowing":
@@ -59,7 +136,7 @@ export function MowerCard({
           color: "text-emerald-500",
           bgColor: "bg-emerald-500/10",
           borderColor: "border-emerald-500/20",
-          icon: Play
+          icon: Gauge
         };
       case "charging":
         return {
@@ -67,7 +144,7 @@ export function MowerCard({
           color: "text-blue-500",
           bgColor: "bg-blue-500/10",
           borderColor: "border-blue-500/20",
-          icon: Battery
+          icon: BatteryCharging
         };
       case "parked":
         return {
@@ -75,15 +152,23 @@ export function MowerCard({
           color: "text-slate-500",
           bgColor: "bg-slate-500/10",
           borderColor: "border-slate-500/20",
-          icon: Battery
+          icon: Home
         };
       case "returning":
         return {
-          label: "Returning",
+          label: "Returning Home",
           color: "text-indigo-500",
           bgColor: "bg-indigo-500/10",
           borderColor: "border-indigo-500/20",
-          icon: Clock
+          icon: CornerDownLeft
+        };
+      case "leaving":
+        return {
+          label: "Leaving Station",
+          color: "text-cyan-500",
+          bgColor: "bg-cyan-500/10",
+          borderColor: "border-cyan-500/20",
+          icon: CornerUpRight
         };
       case "error":
         return {
@@ -91,15 +176,16 @@ export function MowerCard({
           color: "text-red-500",
           bgColor: "bg-red-500/10",
           borderColor: "border-red-500/20",
-          icon: AlertCircle
+          icon: AlertTriangle
         };
       case "offline":
         return {
           label: "Offline",
-          color: "text-gray-500",
-          bgColor: "bg-gray-500/10",
-          borderColor: "border-gray-500/20",
-          icon: Gauge
+          color: "text-red-500",
+          bgColor: "bg-red-500/10",
+          borderColor: "border-red-500/20",
+          icon: Wifi,
+          pulsing: true // Add pulsing flag for offline status
         };
       case "online":
         return {
@@ -173,6 +259,85 @@ export function MowerCard({
     return colorMap[color] || "bg-gray-500";
   };
 
+  // Helper function to determine which timestamp to display
+  const getDisplayTimestamp = () => {
+    if (showChangedTimeOnly) {
+      return lastChanged ? lastChanged : lastUpdated;
+    }
+    return lastUpdated;
+  };
+  
+  // Format the timestamp for display
+  const formattedTime = () => {
+    const timestamp = getDisplayTimestamp();
+    if (!timestamp) return null;
+    
+    // Format as "X minutes/hours ago"
+    return getTimeAgo(timestamp);
+  };
+  
+  // Get timestamp caption
+  const getTimeCaption = () => {
+    if (showChangedTimeOnly && lastChanged) {
+      return 'Changed:';
+    }
+    return 'Updated:';
+  };
+
+  // Add this function to get a description of the pending command
+  const getPendingCommandDescription = () => {
+    if (!pendingCommand) return null;
+    
+    console.log(`[MowerCard ${name}] Processing pendingCommand:`, pendingCommand);
+    
+    if (pendingCommand.description) {
+      return pendingCommand.description;
+    }
+    
+    // Generate a standard description if none provided
+    switch (pendingCommand.command) {
+      case 'Start':
+      case 'StartInWorkArea':
+        return 'Starting mower...';
+      case 'Pause':
+        return 'Pausing mower...';
+      case 'Park':
+      case 'ParkUntilNextSchedule':
+      case 'ParkUntilFurtherNotice':
+        return 'Sending mower home...';
+      case 'ResumeSchedule':
+        return 'Resuming schedule...';
+      default:
+        return `Command "${pendingCommand.command}" sent...`;
+    }
+  };
+
+  // Add this function to get time elapsed since command was sent
+  const getCommandWaitTime = () => {
+    if (!pendingCommand?.sentAt) return '';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - pendingCommand.sentAt.getTime();
+    const diffSec = Math.floor(diffMs / 1000);
+    
+    if (diffSec < 60) {
+      return `${diffSec}s ago`;
+    }
+    
+    const diffMin = Math.floor(diffSec / 60);
+    return `${diffMin}m ${diffSec % 60}s ago`;
+  };
+
+  // Add debugging for pendingCommand prop
+  React.useEffect(() => {
+    console.log(`[MowerCard ${name}] pendingCommand status:`, pendingCommand ? `${pendingCommand.command} (${pendingCommand.description})` : 'none');
+  }, [pendingCommand, name]);
+
+  // Check for charging while parked
+  const isChargingParked = (status === 'parked' && batteryLevel < 100) || 
+    // @ts-ignore - This might be a custom field from the dashboard
+    (status === 'parked' && typeof isChargingWhileParked === 'boolean' && isChargingWhileParked);
+
   return (
     <Card 
       className={cn(
@@ -201,46 +366,91 @@ export function MowerCard({
           <h3 className="text-lg font-medium truncate">{name}</h3>
         </div>
         
-        {/* Status badge - now at the top */}
+        {/* Status badge - updated for offline with pulse effect */}
         <Badge
           variant="outline"
           className={cn(
             "font-normal whitespace-nowrap",
-            statusConfig.color,
-            statusConfig.bgColor,
-            statusConfig.borderColor,
-            "w-full justify-center py-1.5 my-1"
+            pendingCommand ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : statusConfig.color,
+            pendingCommand ? "bg-amber-500/10" : statusConfig.bgColor,
+            pendingCommand ? "border-amber-500/20" : statusConfig.borderColor,
+            "w-full justify-center py-1.5 my-1 flex items-center"
           )}
         >
-          <StatusIcon className="mr-1.5 h-3.5 w-3.5" />
-          {statusConfig.label}
+          {pendingCommand ? (
+            <>
+              <span className="h-2 w-2 mr-2 rounded-full bg-amber-500 animate-pulse"></span>
+              {getPendingCommandDescription()}
+            </>
+          ) : (
+            <>
+              {statusConfig.pulsing ? (
+                // Add pulsing dot for offline status
+                <span className="relative flex h-2 w-2 mr-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+                </span>
+              ) : (
+                <StatusIcon className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              {statusConfig.label}
+              
+              {/* Show charging indicator for parked mowers with battery < 100% */}
+              {status === "parked" && (
+                <>
+                  {isChargingParked ? (
+                    <span className="ml-1 text-blue-500 flex items-center">
+                      <BatteryCharging className="h-3 w-3 mr-0.5 animate-pulse" />
+                      <span className="text-xs">(Charging)</span>
+                    </span>
+                  ) : null}
+                </>
+              )}
+            </>
+          )}
         </Badge>
         
-        {/* Categories section */}
-        {categories.length > 0 ? (
-          <div className="flex flex-wrap gap-1 mt-2">
-            <div className="flex items-center mr-1">
-              <Tag className="h-3 w-3 text-muted-foreground mr-1" />
+        {/* Ensure error message shows the code if available */}
+        {status === "error" && errorMessage && (
+          <div className="py-2 px-3 bg-red-500/10 border border-red-500/20 rounded-md mt-2">
+            <div className="flex items-start">
+              <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 mr-1.5 flex-shrink-0" />
+              <p className="text-xs text-red-500">{errorMessage}</p>
             </div>
-            {categories.map((category) => (
-              <Badge
-                key={category.id}
-                variant="secondary"
-                className="text-xs py-0 h-5 gap-1.5"
-              >
-                <span 
-                  className={`w-2 h-2 rounded-full ${getColorClass(category.color)}`} 
-                />
-                {category.name}
-              </Badge>
-            ))}
-          </div>
-        ) : (
-          <div className="flex items-center text-xs text-muted-foreground mt-2">
-            <Tag className="h-3 w-3 mr-1" />
-            <span>No categories</span>
           </div>
         )}
+        
+        {/* Pending command wait time */}
+        {pendingCommand && (
+          <div className="text-xs text-center text-muted-foreground mt-1">
+            Command sent {getCommandWaitTime()} - Waiting for confirmation
+          </div>
+        )}
+        
+        {/* Zones/Categories section - more prominent display */}
+        {categories.length > 0 ? (
+          <div className="flex flex-col mt-2">
+            <div className="flex items-center text-xs text-muted-foreground mb-1">
+              <Tag className="h-3.5 w-3.5 mr-1" />
+              <span>Work Areas:</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {categories.map((category) => (
+                <Badge
+                  key={category.id}
+                  variant="outline"
+                  className="py-0.5 px-2 h-6 flex items-center gap-1.5 bg-secondary/50"
+                >
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: category.color }}
+                  />
+                  <span className="font-medium text-xs">{category.name}</span>
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </CardHeader>
 
       <CardContent className="p-4 pt-0 pb-0 space-y-3">
@@ -259,24 +469,50 @@ export function MowerCard({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex justify-between text-xs">
-            <span className="text-muted-foreground">Area Complete</span>
-            <span className="text-muted-foreground">{areaComplete}</span>
-          </div>
-          {areaComplete !== 'N/A' ? (
-            <Progress value={Number.parseInt(areaComplete || '0')} className="h-1.5" />
-          ) : (
-            <div className="h-1.5 w-full rounded-full bg-gray-600/20 flex items-center justify-center">
-              <span className="text-xs text-muted-foreground">Not Available</span>
+        {/* Use the new MowerAreaCompletion component */}
+        {id ? (
+          <MowerAreaCompletion mowerId={id} initialValue={areaComplete} />
+        ) : (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Area Complete</span>
+              <span className="text-muted-foreground">{areaComplete}</span>
             </div>
-          )}
-        </div>
-
-        {status === "error" && errorMessage && (
-          <div className="py-2 px-3 bg-red-500/10 border border-red-500/20 rounded-md">
-            <p className="text-xs text-red-500">{errorMessage}</p>
+            {areaComplete && areaComplete !== 'N/A' ? (
+              <div className={cn("w-full h-1.5 rounded-full overflow-hidden", "bg-emerald-500/20")}>
+                <div
+                  className={cn("h-full rounded-full", "bg-emerald-500")}
+                  style={{ 
+                    width: `${Math.min(Math.max(parseInt(areaComplete.replace('%', ''), 10) || 0, 1), 100)}%` 
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="h-1.5 w-full rounded-full bg-gray-200 dark:bg-gray-600/20">
+                <div className="h-full bg-gray-300 dark:bg-gray-500/20 rounded-full w-full text-[8px] flex items-center justify-center overflow-hidden">
+                  <span className="text-muted-foreground truncate px-1">Not Available</span>
+                </div>
+              </div>
+            )}
           </div>
+        )}
+
+        {/* Next start time */}
+        {nextStartTime && status !== 'mowing' && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground flex items-center">
+                <Clock className="h-3 w-3 mr-1" />
+                Next start
+              </span>
+              <span className="text-primary">{nextStartTime}</span>
+            </div>
+          </div>
+        )}
+        
+        {/* Show charging indicator for parked mowers with battery < 100% */}
+        {status === "parked" && isChargingParked && (
+          <ChargingIndicator batteryLevel={batteryLevel} />
         )}
       </CardContent>
 
@@ -298,11 +534,10 @@ export function MowerCard({
           </Link>
         </div>
         
-        {lastUpdated && (
+        {formattedTime() && (
           <div className="w-full flex items-center justify-between border-t border-border pt-2">
             <div className="flex items-center text-xs text-muted-foreground">
-              <RefreshCw className="mr-1 h-3 w-3" />
-              <span>Updated {formatDistanceToNow(lastUpdated, { addSuffix: true })}</span>
+              <span>{getTimeCaption()}</span> {formattedTime()}
             </div>
             
             {dataSource && (

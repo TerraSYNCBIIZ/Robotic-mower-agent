@@ -26,20 +26,20 @@ const CONNECTION_TIMEOUT = 60000; // 60 seconds
 const RECONNECT_INTERVAL = 10000; // 10 seconds
 const FIREBASE_UPDATE_THROTTLES = {
   'position': 10000,        // 10 seconds for position (mowers move slowly but we want responsive tracking)
-  'battery': 300000,        // 5 minutes for battery (changes slowly)
-  'mower': 60000,           // 1 minute for mower status (activity, state, mode)
-  'calendar': 3600000,      // 1 hour for calendar (rarely changes)
+  'battery': 30000,         // 30 seconds for battery (was 5 minutes, now faster updates)
+  'mower': 15000,           // 15 seconds for mower status (was 1 minute, now much faster updates)
+  'calendar': 120000,       // 2 minutes for calendar (was 1 hour, now more responsive)
   'cuttingHeight': 3600000, // 1 hour for cutting height (rarely changes)
   'headlights': 3600000,    // 1 hour for headlights (rarely changes)
-  'messages': 120000,       // 2 minutes for messages (fairly important)
-  'planner': 600000,        // 10 minutes for planner
-  'statistics': 1800000,    // 30 minutes for statistics (accumulated slowly)
-  'workAreas': 86400000,    // 24 hours for work areas (very static)
-  'stayOutZones': 86400000, // 24 hours for stay out zones (very static)
-  'settings': 1800000,      // 30 minutes for settings
-  'system': 86400000,       // 24 hours for system info
-  'errors': 60000,          // 1 minute for errors (important to show promptly)
-  'default': 300000         // 5 minutes default for unknown types
+  'messages': 60000,        // 1 minute for messages (was 2 minutes, now more important)
+  'planner': 30000,         // 30 seconds for planner (was 10 minutes, now much faster)
+  'statistics': 300000,     // 5 minutes for statistics (was 30 minutes, now more frequent)
+  'workAreas': 3600000,     // 1 hour for work areas (was 24 hours, now more responsive)
+  'stayOutZones': 3600000,  // 1 hour for stay out zones (was 24 hours, now more responsive)
+  'settings': 600000,       // 10 minutes for settings (was 30 minutes, now more frequent)
+  'system': 3600000,        // 1 hour for system info (was 24 hours, now more responsive)
+  'errors': 15000,          // 15 seconds for errors (was 1 minute, now very important)
+  'default': 60000          // 1 minute default for unknown types (was 5 minutes)
 };
 
 // Define API polling interval (6 hours = 4 times per day)
@@ -252,6 +252,66 @@ function queueFirebaseUpdate(mowerId, dataType, data) {
   
   // Store the data to be processed later
   UPDATE_QUEUE[mowerId][dataType] = data;
+}
+
+// Force immediate update to Firebase, bypassing throttling
+// This should be used for user-initiated actions only
+async function forceImmediateUpdate(mowerId, dataType, data) {
+  console.log(`⚡ FORCE IMMEDIATE UPDATE: Mower ${mowerId}, Type: ${dataType}, Data: ${JSON.stringify(data)}`);
+  
+  // Update Firebase directly without throttling
+  await updateFirebaseData(mowerId, dataType, data);
+  
+  // Update the timestamp to prevent duplicate updates
+  if (!UPDATE_TIMESTAMPS[mowerId]) {
+    UPDATE_TIMESTAMPS[mowerId] = {};
+  }
+  UPDATE_TIMESTAMPS[mowerId][dataType] = Date.now();
+  
+  // Remove from queue if it exists
+  if (UPDATE_QUEUE[mowerId]?.[dataType]) {
+    delete UPDATE_QUEUE[mowerId][dataType];
+    console.log(`🗑️ REMOVED FROM QUEUE: Mower ${mowerId}, Type: ${dataType} (forced update)`);
+  }
+  
+  // Broadcast area completion updates to all connected clients
+  if (dataType === 'workAreaProgress' || dataType === 'areaComplete') {
+    broadcastAreaCompletionUpdate(mowerId, data);
+  }
+}
+
+/**
+ * Broadcast area completion updates to all connected clients
+ * This ensures all UI components get real-time updates
+ */
+function broadcastAreaCompletionUpdate(mowerId, data) {
+  // Skip if no area completion data
+  if (!data) return;
+  
+  console.log(`📣 BROADCASTING AREA COMPLETION UPDATE: Mower ${mowerId}`);
+  
+  try {
+    // Prepare message with all necessary info
+    const message = {
+      type: 'area-completion-update',
+      mowerId: mowerId,
+      areaComplete: data.areaComplete || data, // Handle both workAreaProgress object and direct string
+      timestamp: Date.now(),
+      areas: data.areas || []
+    };
+    
+    const messageStr = JSON.stringify(message);
+    
+    // Send to all connected clients
+    for (const [_, connection] of connections.entries()) {
+      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
+        connection.clientWs.send(messageStr);
+        console.log(`📤 Sent area completion update to client for mower ${mowerId}`);
+      }
+    }
+  } catch (error) {
+    console.error(`❌ Error broadcasting area completion update: ${error}`);
+  }
 }
 
 // Create HTTP server
@@ -568,18 +628,82 @@ async function connectToHusqvarnaWS(connectionId) {
                   break;
                   
                 case 'workArea-event-v2':
-                  // Handle work area events
-                  try {
-                    if (data.attributes.workArea) {
-                      console.log(`[${connectionId}] 🗺️ WORK AREA EVENT: ${JSON.stringify(data.attributes.workArea)}`);
-                      queueFirebaseUpdate(mowerId, 'workAreas', {
-                        ...data.attributes.workArea,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Successfully processed workArea-event-v2 for mower ${mowerId}`);
+                  // Handle work area updates with special care for progress data
+                  if (data.attributes.workAreas && Array.isArray(data.attributes.workAreas)) {
+                    // Store work areas data
+                    queueFirebaseUpdate(mowerId, 'workAreas', data.attributes.workAreas);
+                    
+                    // Process and store area completion percentage for UI display
+                    // Find any areas with progress information
+                    const workAreasWithProgress = data.attributes.workAreas.filter(area => 
+                      area && area.attributes && typeof area.attributes.progress === 'number'
+                    );
+                    
+                    if (workAreasWithProgress.length > 0) {
+                      const totalProgress = workAreasWithProgress.reduce(
+                        (sum, area) => sum + (area.attributes.progress || 0), 
+                        0
+                      );
+                      
+                      const avgProgress = Math.round(totalProgress / workAreasWithProgress.length);
+                      const progressData = {
+                        areaComplete: `${avgProgress}%`,
+                        areas: workAreasWithProgress.map(area => ({
+                          workAreaId: area.attributes.workAreaId || parseInt(area.id, 10),
+                          name: area.attributes.name || `Work Area ${area.attributes.workAreaId || area.id}`,
+                          progress: area.attributes.progress || 0,
+                          lastCompleted: area.attributes.lastTimeCompleted
+                        }))
+                      };
+                      
+                      // Store progress data directly (force immediate update to ensure it's displayed)
+                      forceImmediateUpdate(mowerId, 'workAreaProgress', progressData);
+                      
+                      // Also update the main document with the percentage
+                      forceImmediateUpdate(mowerId, 'areaComplete', `${avgProgress}%`);
+                      
+                      console.log(`[${connectionId}] Work area progress for mower ${mowerId}: ${avgProgress}%`);
                     }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing workArea-event-v2:`, eventError);
+                  }
+                  break;
+                  
+                case 'work-area-event-v2':
+                  // Handle work area updates with special care for progress data
+                  if (data.attributes.workAreas && Array.isArray(data.attributes.workAreas)) {
+                    // Store work areas data
+                    queueFirebaseUpdate(mowerId, 'workAreas', data.attributes.workAreas);
+                    
+                    // Process and store area completion percentage for UI display
+                    // Find any areas with progress information
+                    const workAreasWithProgress = data.attributes.workAreas.filter(area => 
+                      area && area.attributes && typeof area.attributes.progress === 'number'
+                    );
+                    
+                    if (workAreasWithProgress.length > 0) {
+                      const totalProgress = workAreasWithProgress.reduce(
+                        (sum, area) => sum + (area.attributes.progress || 0), 
+                        0
+                      );
+                      
+                      const avgProgress = Math.round(totalProgress / workAreasWithProgress.length);
+                      const progressData = {
+                        areaComplete: `${avgProgress}%`,
+                        areas: workAreasWithProgress.map(area => ({
+                          workAreaId: area.attributes.workAreaId || parseInt(area.id, 10),
+                          name: area.attributes.name || `Work Area ${area.attributes.workAreaId || area.id}`,
+                          progress: area.attributes.progress || 0,
+                          lastCompleted: area.attributes.lastTimeCompleted
+                        }))
+                      };
+                      
+                      // Store progress data directly (force immediate update to ensure it's displayed)
+                      forceImmediateUpdate(mowerId, 'workAreaProgress', progressData);
+                      
+                      // Also update the main document with the percentage
+                      forceImmediateUpdate(mowerId, 'areaComplete', `${avgProgress}%`);
+                      
+                      console.log(`[${connectionId}] Work area progress for mower ${mowerId}: ${avgProgress}%`);
+                    }
                   }
                   break;
                   

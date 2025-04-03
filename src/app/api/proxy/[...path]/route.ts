@@ -102,6 +102,11 @@ async function handleRequest(
     if (apiPath.includes('mowers')) {
       // Most Husqvarna API endpoints require vnd.api+json
       headers.set('Accept', 'application/vnd.api+json');
+      
+      // For POST actions to mowers endpoints, also need vnd.api+json content type
+      if (method === 'POST' && (apiPath.includes('actions') || apiPath.includes('calendar'))) {
+        headers.set('Content-Type', 'application/vnd.api+json');
+      }
     } else {
       // Use regular JSON for other endpoints
       headers.set('Accept', 'application/json');

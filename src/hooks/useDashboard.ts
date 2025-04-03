@@ -76,6 +76,11 @@ interface ApiMower {
     connectivity?: {
       status?: string;
     };
+    workAreas?: Array<{
+      attributes?: {
+        progress?: number;
+      };
+    }>;
   };
 }
 
@@ -279,13 +284,42 @@ export const useDashboard = () => {
       modelName.toLowerCase().includes('450') || 
       modelName.toLowerCase().includes('500');
     
-    // Only calculate area completion if supported and mower is in active cycle
+    // Get work area data if available - important for area completion
+    const workAreas = apiMower.attributes?.workAreas || [];
+    
+    // Calculate area completion percentage from work areas
     let areaComplete = 'N/A';
-    if (supportsAreaCompletion && status === 'mowing') {
-      // In a real implementation, you would use actual area completion data from the API
-      // For now, we'll use battery level as a proxy
-      const areaCompletionValue = Math.min(100 - (apiMower.attributes?.battery?.batteryPercent || 0), 100);
-      areaComplete = `${areaCompletionValue}%`;
+    
+    if (workAreas && workAreas.length > 0) {
+      // Look for progress fields in work areas
+      const workAreaWithProgress = workAreas.filter(area => 
+        area && area.attributes && typeof area.attributes.progress === 'number'
+      );
+      
+      if (workAreaWithProgress.length > 0) {
+        // Calculate average progress across all work areas
+        const totalProgress = workAreaWithProgress.reduce(
+          (sum, area) => sum + (area.attributes.progress || 0), 
+          0
+        );
+        const avgProgress = Math.round(totalProgress / workAreaWithProgress.length);
+        areaComplete = `${avgProgress}%`;
+        
+        console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} area completion from work areas: ${areaComplete}`);
+      }
+    }
+    
+    // Fallback to a battery-based approximation only if necessary
+    if (areaComplete === 'N/A' && supportsAreaCompletion) {
+      // Only use this for actively mowing mowers
+      if (status === 'mowing') {
+        // Use battery level as a proxy for completion
+        const batteryPercent = apiMower.attributes?.battery?.batteryPercent || 0;
+        const estimatedCompletion = Math.min(100 - batteryPercent, 100);
+        areaComplete = `${estimatedCompletion}%`;
+        
+        console.log(`Mower ${apiMower.attributes?.system?.name || apiMower.id} area completion based on battery: ${areaComplete}`);
+      }
     }
 
     // Map zone data if available
@@ -377,9 +411,7 @@ export const useDashboard = () => {
       statistics,
       schedule,
       zones: zones || [
-        { name: "Front Yard", color: "#3b82f6" },
-        { name: "Back Yard", color: "#ef4444" },
-        { name: "Side Yard", color: "#f59e0b" }
+        { name: "Default Zone", color: "#3b82f6" }
       ],
       supportsAreaCompletion,
       lastUpdated: new Date(), // Current time as update time

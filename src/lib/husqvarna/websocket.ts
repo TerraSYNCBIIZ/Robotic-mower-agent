@@ -196,106 +196,120 @@ export class HusqvarnaWebSocketManager extends EventEmitter {
   }
   
   /**
-   * Connect to the Husqvarna WebSocket API
-   * Adds throttling to prevent too many connection attempts
+   * Connect to the WebSocket server
+   * @returns Promise that resolves to true if connection is successful, false otherwise
    */
   async connect(): Promise<boolean> {
     try {
-      // If already connected, don't try again
-      if (this.status === WebSocketStatus.CONNECTED) {
-        console.log('WebSocket is already connected');
+      // First, check if we need to connect
+      if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected');
         return true;
       }
       
-      // If already connecting, don't start another connection attempt
-      if (this.status === WebSocketStatus.CONNECTING) {
-        console.log('WebSocket is already connecting');
-        // Check if we've been stuck in "connecting" state for too long (>15 seconds)
-        if (this.connectionMetrics.lastActivity) {
-          const now = Date.now();
-          const connectingTime = now - this.connectionMetrics.lastActivity;
-          if (connectingTime > 15000) { // 15 seconds
-            console.log('Connection attempt taking too long, resetting state');
-            this.status = WebSocketStatus.DISCONNECTED;
-          } else {
-            // Still in reasonable connecting timeframe, wait
-            return false;
-          }
-        } else {
-          return false;
-        }
-      }
+      // Get auth token
+      const token = getAuthToken();
       
-      // Check if we've tried to connect recently - throttle connection attempts
-      const now = Date.now();
-      if (now - this.lastConnectionCheck < this.connectionCheckThrottle) {
-        console.log('Connection attempt throttled, waiting a few seconds');
-        // Return false instead of comparing status
+      if (!token) {
+        this.errorCallback?.('No authentication token available');
         return false;
       }
       
-      this.lastConnectionCheck = now;
-      this.connectionMetrics.lastActivity = now;
-      this.setStatus(WebSocketStatus.CONNECTING);
+      // Create WebSocket URL with token as query parameter
+      const wsUrl = `${process.env.NEXT_PUBLIC_WEBSOCKET_URL}?token=${token}`;
       
-      // Get WebSocket auth token from API with no-cache to prevent using stale tokens
-      const headers: HeadersInit = {};
-      if (this.connectionAttempts > 0) {
-        // Only skip cache after first attempt to reduce API calls
-        headers['cache-control'] = 'no-cache';
-      }
-      
-      console.log('Getting WebSocket auth token...');
-      const data = await husqvarnaApi.getWebSocketAuthToken(headers);
-      
-      if (!data || !data.token) {
-        console.error('Failed to get WebSocket auth token');
-        this.setStatus(WebSocketStatus.ERROR);
-        return false;
-      }
-      
-      // Connect to WebSocket API via proxy
       console.log('Connecting to WebSocket proxy...');
       
-      // Use WebSocket proxy with the token
-      // The proxy URL is returned from the API endpoint
-      const wsProxyUrl = data.wsProxyUrl ? 
-        `${data.wsProxyUrl}?token=${data.token}` : 
-        `ws://localhost:8000?token=${data.token}`;
+      // Create WebSocket
+      this.socket = new WebSocket(wsUrl);
       
-      console.log(`Using WebSocket URL: ${wsProxyUrl}`);
-      this.connectionMetrics.wsUrl = wsProxyUrl;
+      // Expose the WebSocket instance globally for direct event handling
+      if (typeof window !== 'undefined') {
+        (window as any).husqvarnaWebSocket = this.socket;
+      }
       
-      this.socket = new WebSocket(wsProxyUrl);
-      
-      // Set up event handlers
+      // Setup event handlers
       this.socket.onopen = this.handleOpen.bind(this);
-      this.socket.onmessage = this.handleMessage.bind(this);
-      this.socket.onerror = this.handleError.bind(this);
       this.socket.onclose = this.handleClose.bind(this);
+      this.socket.onerror = this.handleError.bind(this);
+      this.socket.onmessage = this.handleMessage.bind(this);
       
-      // Set up timeout for connection
-      const timeout = setTimeout(() => {
-        if (this.status === WebSocketStatus.CONNECTING) {
-          console.error('WebSocket connection timed out');
-          this.disconnect();
-          this.setStatus(WebSocketStatus.ERROR);
-        }
-      }, 10000); // 10 second timeout
-      
-      // Wait for connection
+      // Wait for connection to be established
       return new Promise((resolve) => {
-        const checkStatus = setInterval(() => {
-          if (this.status !== WebSocketStatus.CONNECTING) {
-            clearInterval(checkStatus);
-            clearTimeout(timeout);
-            resolve(this.status === WebSocketStatus.CONNECTED);
+        // Resolve immediately if already connected
+        if (this.socket?.readyState === WebSocket.OPEN) {
+          resolve(true);
+          return;
+        }
+        
+        // Setup temporary event handlers for promise resolution
+        const tempOpenHandler = () => {
+          console.log('WebSocket connected');
+          this.connected = true;
+          resolve(true);
+          
+          // Remove these temporary handlers
+          if (this.socket) {
+            this.socket.removeEventListener('open', tempOpenHandler);
+            this.socket.removeEventListener('error', tempErrorHandler);
+            this.socket.removeEventListener('close', tempCloseHandler);
           }
-        }, 100);
+        };
+        
+        const tempErrorHandler = (event: Event) => {
+          console.error('WebSocket connection error:', event);
+          this.connected = false;
+          resolve(false);
+          
+          // Remove these temporary handlers
+          if (this.socket) {
+            this.socket.removeEventListener('open', tempOpenHandler);
+            this.socket.removeEventListener('error', tempErrorHandler);
+            this.socket.removeEventListener('close', tempCloseHandler);
+          }
+        };
+        
+        const tempCloseHandler = () => {
+          console.log('WebSocket closed during connection attempt');
+          this.connected = false;
+          resolve(false);
+          
+          // Remove these temporary handlers
+          if (this.socket) {
+            this.socket.removeEventListener('open', tempOpenHandler);
+            this.socket.removeEventListener('error', tempErrorHandler);
+            this.socket.removeEventListener('close', tempCloseHandler);
+          }
+        };
+        
+        // Add temporary handlers
+        this.socket?.addEventListener('open', tempOpenHandler);
+        this.socket?.addEventListener('error', tempErrorHandler);
+        this.socket?.addEventListener('close', tempCloseHandler);
+        
+        // Set a timeout
+        const timeout = setTimeout(() => {
+          console.error('WebSocket connection timeout');
+          
+          // Remove handlers
+          if (this.socket) {
+            this.socket.removeEventListener('open', tempOpenHandler);
+            this.socket.removeEventListener('error', tempErrorHandler);
+            this.socket.removeEventListener('close', tempCloseHandler);
+          }
+          
+          this.connected = false;
+          resolve(false);
+        }, 10000); // 10 second timeout
+        
+        // Add a cleanup for the timeout
+        this.socket?.addEventListener('open', () => clearTimeout(timeout));
+        this.socket?.addEventListener('error', () => clearTimeout(timeout));
+        this.socket?.addEventListener('close', () => clearTimeout(timeout));
       });
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);
-      this.setStatus(WebSocketStatus.ERROR);
+      this.errorCallback?.(error);
       return false;
     }
   }
