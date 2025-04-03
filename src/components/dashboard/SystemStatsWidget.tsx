@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import React from 'react';
 
 // Error codes mapping based on Husqvarna API documentation
 const ERROR_CODES: Record<number, string> = {
@@ -268,7 +269,7 @@ export function SystemStatsWidget({
       'charging': 'bg-blue-500/10 text-blue-500 border-blue-500/20',
       'idle': 'bg-gray-400/10 text-gray-400 border-gray-400/20',
       'error': 'bg-red-500/10 text-red-500 border-red-500/20',
-      'offline': 'bg-gray-500/10 text-gray-500 border-gray-500/20',
+      'offline': 'bg-red-500/10 text-red-500 border-red-500/20',
       'returning': 'bg-indigo-500/10 text-indigo-500 border-indigo-500/20',
       'parked': 'bg-slate-500/10 text-slate-500 border-slate-500/20',
       'online': 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
@@ -278,14 +279,23 @@ export function SystemStatsWidget({
     // Only show statuses with at least one mower
     if (count === 0) return null;
     
+    // Add a pulsing dot only for offline or error status
+    const hasPulsingDot = status === 'offline' || status === 'error';
+    
     return (
       <Badge 
         variant="outline" 
         className={cn(
-          "mr-1 mb-1 text-xs py-0 px-2 font-normal whitespace-nowrap",
+          "mr-1 mb-1 text-xs py-0 px-2 font-normal whitespace-nowrap flex items-center",
           statusColors[status]
         )}
       >
+        {hasPulsingDot && (
+          <span className="relative flex h-2 w-2 mr-1">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+          </span>
+        )}
         {count} {status}
       </Badge>
     );
@@ -331,6 +341,20 @@ export function SystemStatsWidget({
 
   const fleet = calculatedFleetStatus || fleetStatus;
 
+  // Add a component to show offline mower warnings
+  const OfflineMowersWarning = ({ offlineCount }: { offlineCount: number }) => {
+    if (offlineCount === 0) return null;
+    
+    return (
+      <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-md">
+        <p className="text-xs font-medium text-red-500 flex items-center">
+          <AlertCircle className="h-3.5 w-3.5 mr-1.5" />
+          {offlineCount} {offlineCount === 1 ? 'mower is' : 'mowers are'} currently disconnected
+        </p>
+      </div>
+    );
+  };
+
   return (
     <Card className={`overflow-hidden rounded-xl shadow-sm h-full ${className}`}>
       <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
@@ -352,6 +376,9 @@ export function SystemStatsWidget({
         {/* Fleet Overview Section */}
         {fleet && (
           <div className="space-y-4">
+            {/* Show offline mowers warning if any are offline */}
+            <OfflineMowersWarning offlineCount={fleet.statusCounts.offline || 0} />
+            
             <div className="mt-3">
               <h3 className="text-sm font-medium mb-2 flex items-center">
                 <PieChart className="w-3.5 h-3.5 mr-1.5" />
@@ -359,9 +386,11 @@ export function SystemStatsWidget({
               </h3>
               
               <div className="flex flex-wrap mt-1.5">
-                {Object.entries(fleet.statusCounts).map(([status, count]) => 
-                  getStatusDisplay(status as MowerStatus, count)
-                )}
+                {Object.entries(fleet.statusCounts).map(([status, count]) => (
+                  <React.Fragment key={status}>
+                    {getStatusDisplay(status as MowerStatus, count)}
+                  </React.Fragment>
+                ))}
               </div>
             </div>
             

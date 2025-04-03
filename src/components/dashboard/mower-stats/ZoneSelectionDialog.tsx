@@ -38,7 +38,7 @@ export function ZoneSelectionDialog({
               variant="outline"
               className="flex justify-start items-center gap-2 h-10 px-3"
               onClick={() => {
-                onSelectZone(zone.name);
+                onSelectZone(zone.name, zone.workAreaId);
                 onClose();
               }}
             >

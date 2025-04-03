@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Cookies from 'js-cookie';
-import { husqvarnaApi, initializeApi } from '@/lib/husqvarna/api-client';
+import { husqvarnaApi, initializeApi, refreshApiAuthentication } from '@/lib/husqvarna/api-client';
 import { getMowerDataService } from '@/lib/husqvarna/mower-data-service-provider';
 
 // Create authentication context
@@ -112,6 +112,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Initialize the husqvarnaApi with the new token
     husqvarnaApi.setAccessToken(accessToken);
+    
+    // Explicitly refresh API authentication to ensure it properly initializes
+    refreshApiAuthentication();
+    
     console.log('API client initialized with new token after login');
     
     return true;

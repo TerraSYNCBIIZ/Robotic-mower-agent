@@ -23,6 +23,25 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
+import { useDashboard } from "@/hooks/useDashboard";
+import { GpsIcon, MapPinIcon, MowerTypeIcon } from "@/components/icons";
+import { TabbedView } from "./TabbedView";
+import { MapView } from "./mower-stats/MapView";
+import { StatisticsView } from "./mower-stats/StatisticsView";
+import { MowerName } from "./MowerName";
+import { ErrorCodeBadge } from "./ErrorCodeBadge";
+import { Button } from "@/components/ui/button";
+import { PlayCircle, PauseCircle, HomeIcon, MoreHorizontal, Zap } from "lucide-react";
+import { MowerBatteryIndicator } from "./MowerBatteryIndicator";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { toast } from "react-hot-toast";
+import { sendMowerCommand } from "@/lib/husqvarna/commands";
+import { CommandButton } from "./CommandButton";
+import { MowerMoreActions } from "./MowerMoreActions";
+import { MowerAlertBanner } from "./MowerAlertBanner";
 
 // Define types based on Husqvarna API response
 interface MowerStatusProps {
@@ -50,6 +69,7 @@ interface MowerStatusProps {
     connectionStatus?: "CONNECTED" | "DISCONNECTED";
   };
   lastSeen?: string;
+  isOffline?: boolean;
   className?: string;
 }
 
@@ -76,202 +96,172 @@ const getErrorMessage = (errorCode: number): string => {
   return errorMessages[errorCode] || `Unknown error (Code: ${errorCode})`;
 };
 
-export function MowerStatusDisplay({
-  name,
-  model,
-  battery,
-  mower,
-  positions,
-  connectivity,
-  lastSeen,
-  className,
-}: MowerStatusProps) {
-  const isError = mower.state.includes("ERROR") || mower.errorCode > 0;
+export function MowerStatusDisplay() {
+  const { selectedMowerId, mowerData, refreshSchedule } = useDashboard();
+  const router = useRouter();
+  const isDesktop = useMediaQuery("(min-width: 768px)");
   
-  // Get simplified status for display
-  const getSimplifiedStatus = (): "mowing" | "charging" | "parked" | "returning" | "idle" | "error" | "online" | "paused" => {
-    if (isError) return "error";
-    if (mower.activity === "MOWING") return "mowing";
-    if (mower.activity === "CHARGING") return "charging";
-    if (mower.activity === "PARKED_IN_CS") return "parked";
-    if (mower.activity === "GOING_HOME") return "returning";
-    if (mower.activity === "LEAVING") return "online";
-    if (mower.state === "PAUSED") return "paused";
-    return "idle";
-  };
-
-  const status = getSimplifiedStatus();
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "mowing":
-        return "bg-emerald-500 text-emerald-50";
-      case "charging":
-        return "bg-blue-500 text-blue-50";
-      case "parked":
-        return "bg-slate-500 text-slate-50";
-      case "returning":
-        return "bg-amber-500 text-amber-50";
-      case "idle":
-        return "bg-yellow-500 text-yellow-50";
-      case "error":
-        return "bg-red-500 text-red-50";
-      case "online":
-        return "bg-emerald-500 text-emerald-50";
-      case "paused":
-        return "bg-amber-500 text-amber-50";
-      default:
-        return "bg-slate-500 text-slate-50";
+  const selectedMower = React.useMemo(() => {
+    if (!selectedMowerId || !mowerData || !Array.isArray(mowerData)) {
+      console.log('[MowerStatusDisplay] No mower selected or mower data not available');
+      return null;
     }
-  };
-
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case "mowing": return "Mowing";
-      case "charging": return "Charging";
-      case "parked": return "Parked";
-      case "returning": return "Returning";
-      case "idle": return "Idle";
-      case "error": return "Error";
-      case "online": return "Online";
-      case "paused": return "Paused";
-      default: return "Unknown";
-    }
-  };
-
-  const getBatteryIcon = (level: number) => {
-    return (
-      <div className="flex items-center gap-1.5">
-        <Battery className={cn(
-          "h-4 w-4",
-          level < 20 ? "text-red-500" : level < 50 ? "text-amber-500" : "text-emerald-500"
-        )} />
-        <span>{level}%</span>
-      </div>
-    );
-  };
-
-  const getSignalIcon = (strength?: number) => {
-    if (strength === undefined) return null;
     
-    return (
-      <div className="flex items-center gap-1.5">
-        <Wifi className={cn(
-          "h-4 w-4",
-          strength < 30 ? "text-red-500" : strength < 70 ? "text-amber-500" : "text-emerald-500"
-        )} />
-        <span>{strength}%</span>
-      </div>
-    );
-  };
+    const mower = mowerData.find(m => m.id === selectedMowerId);
+    if (!mower) {
+      console.log(`[MowerStatusDisplay] Mower with ID ${selectedMowerId} not found in mowerData`);
+      return null;
+    }
+    
+    console.log(`[MowerStatusDisplay] Selected mower: ${mower.name}, has schedule:`, 
+      mower.schedule && Array.isArray(mower.schedule) && mower.schedule.length > 0);
+    
+    return mower;
+  }, [selectedMowerId, mowerData]);
 
-  const getModeDescription = (mode: string): string => {
-    const modeDescriptions: Record<string, string> = {
-      "MAIN_AREA": "Mowing main area according to schedule",
-      "SECONDARY_AREA": "Mowing secondary area",
-      "HOME": "Staying in charging station",
-      "DEMO": "Demo mode (no blade operation)",
-      "UNKNOWN": "Unknown mode"
-    };
-    return modeDescriptions[mode] || mode;
-  };
+  const renderTabContent = React.useCallback((tab: string) => {
+    switch (tab) {
+      case "schedule":
+        return (
+          <div className="p-4 border rounded-md text-center">
+            <p className="text-sm text-muted-foreground">Schedule view has been moved to the new unified MowerSchedule component.</p>
+          </div>
+        );
+      case "map":
+        return (
+          <MapView
+            position={selectedMower?.position}
+            zones={selectedMower?.zones || []}
+            isConnected={selectedMower?.isConnected} 
+          />
+        );
+      case "statistics":
+        return <StatisticsView statistics={selectedMower?.statistics} />;
+      default:
+        return <div>Select a tab to view content</div>;
+    }
+  }, [selectedMower]);
 
   return (
-    <Card className={cn("w-full", className)}>
+    <Card className={cn("w-full")}>
       <CardHeader className="pb-2">
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle className="text-lg font-medium">{name}</CardTitle>
-            {model && <p className="text-sm text-muted-foreground">{model}</p>}
+            <CardTitle className="text-lg font-medium">{selectedMower?.name}</CardTitle>
+            {selectedMower?.model && <p className="text-sm text-muted-foreground">{selectedMower?.model}</p>}
           </div>
-          <Badge className={getStatusColor(status)}>
-            {getStatusLabel(status)}
-          </Badge>
         </div>
       </CardHeader>
       
       <CardContent className="pb-3">
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div className="flex items-center gap-2 text-sm">
-            {getBatteryIcon(battery.batteryPercent)}
+        {/* Two-column layout with mower on left, status on right */}
+        <div className="flex gap-4 mb-3">
+          {/* Mower Image */}
+          <div className="relative w-24 h-24 flex-shrink-0">
+            <Image 
+              src={`/images/mower-${selectedMower?.status === 'error' ? 'red' : 'gray'}.png`}
+              alt={selectedMower?.name}
+              className="object-contain"
+              fill
+              sizes="96px"
+            />
           </div>
-          {connectivity?.signalStrength && (
-            <div className="flex items-center gap-2 text-sm">
-              {getSignalIcon(connectivity.signalStrength)}
-            </div>
-          )}
-          {positions && positions.length > 0 && (
-            <div className="flex items-center gap-2 text-sm">
-              <MapPin className="h-4 w-4 text-foreground/70" />
-              <span>Position available</span>
-            </div>
-          )}
-          {lastSeen && (
-            <div className="flex items-center gap-2 text-sm">
-              <Clock className="h-4 w-4 text-foreground/70" />
-              <span>Last seen: {lastSeen}</span>
+          
+          {/* Status info */}
+          <div className="flex-1">
+            <Badge className={cn(
+              "bg-emerald-500 text-emerald-50",
+              selectedMower?.status === "offline" && "bg-red-500 text-red-50",
+              selectedMower?.status === "error" && "bg-red-500 text-red-50"
+            )}>
+              {selectedMower?.status === "offline" && (
+                <span className="relative flex h-2 w-2 mr-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                </span>
+              )}
+              {selectedMower?.status === "error" && (
+                <span className="relative flex h-2 w-2 mr-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                </span>
+              )}
+              {selectedMower?.status === "mowing" && "Mowing"}
+              {selectedMower?.status === "charging" && "Charging"}
+              {selectedMower?.status === "parked" && "Parked"}
+              {selectedMower?.status === "returning" && "Returning"}
+              {selectedMower?.status === "idle" && "Idle"}
+              {selectedMower?.status === "paused" && "Paused"}
+              {selectedMower?.status === "online" && "Online"}
+            </Badge>
+            
+            {selectedMower?.isOffline && (
+              <div className="mt-2 text-xs text-red-500 flex items-center">
+                <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                Connection lost - Controls disabled
+              </div>
+            )}
+          </div>
+        </div>
+        
+        {/* Battery and positioning info */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-sm">
+            <MowerBatteryIndicator level={selectedMower?.batteryPercent || 0} />
+          </div>
+          {selectedMower?.errorCode > 0 && (
+            <div className="p-2 bg-red-500/10 border border-red-500/20 rounded-md">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-xs text-red-500 font-medium">
+                    {getErrorMessage(selectedMower?.errorCode || 0)} (Code: {selectedMower?.errorCode})
+                  </p>
+                  {selectedMower?.errorCodeTimestamp > 0 && (
+                    <p className="text-xs text-red-500/80 mt-1">
+                      Error occurred: {new Date(selectedMower?.errorCodeTimestamp || 0).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </div>
         
         <Separator className="my-2" />
         
-        <div className="space-y-3">
-          <TooltipProvider>
-            <div className="flex items-center gap-2 text-sm">
-              <Settings className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Mode:</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="font-medium">{mower.mode}</span>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>{getModeDescription(mower.mode)}</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-            
-            <div className="flex items-center gap-2 text-sm">
-              <Power className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Activity:</span>
-              <span className="font-medium">{mower.activity.replace(/_/g, " ")}</span>
-            </div>
-            
-            <div className="flex items-center gap-2 text-sm">
-              <RotateCw className="h-4 w-4 text-muted-foreground" />
-              <span className="text-muted-foreground">State:</span>
-              <span className="font-medium">{mower.state.replace(/_/g, " ")}</span>
-            </div>
-          </TooltipProvider>
-        </div>
-        
-        {isError && (
-          <div className="mt-4 p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-md">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-red-700 dark:text-red-400">
-                  {getErrorMessage(mower.errorCode)}
-                </p>
-                {mower.errorCodeTimestamp > 0 && (
-                  <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1">
-                    Error occurred: {new Date(mower.errorCodeTimestamp).toLocaleString()}
-                  </p>
-                )}
-              </div>
-            </div>
+        <div className="space-y-2 text-xs">
+          <div className="flex items-center gap-2">
+            <Settings className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">Mode:</span>
+            <span className="font-medium">{selectedMower?.mode}</span>
           </div>
-        )}
+          
+          <div className="flex items-center gap-2">
+            <Power className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-muted-foreground">Activity:</span>
+            <span className="font-medium">{selectedMower?.activity.replace(/_/g, " ")}</span>
+          </div>
+          
+          {selectedMower?.lastSeen && (
+            <div className="flex items-center gap-2">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Last seen:</span>
+              <span className="font-medium">{selectedMower?.lastSeen}</span>
+            </div>
+          )}
+        </div>
       </CardContent>
       
       <CardFooter className="pt-1 pb-3">
         <div className="w-full text-xs text-muted-foreground">
-          {mower.activity === "MOWING" && "Currently mowing lawn"}
-          {mower.activity === "CHARGING" && "Connected to charging station"}
-          {mower.activity === "PARKED_IN_CS" && "Parked at charging station"}
-          {mower.activity === "GOING_HOME" && "Returning to charging station"}
-          {mower.activity === "STOPPED_IN_GARDEN" && "Stopped and waiting for action"}
-          {isError && "Requires attention: check error details"}
+          {selectedMower?.isOffline && "Mower is currently offline and not connected"}
+          {!selectedMower?.isOffline && selectedMower?.activity === "MOWING" && "Currently mowing lawn"}
+          {!selectedMower?.isOffline && selectedMower?.activity === "CHARGING" && "Connected to charging station"}
+          {!selectedMower?.isOffline && selectedMower?.activity === "PARKED_IN_CS" && "Parked at charging station"}
+          {!selectedMower?.isOffline && selectedMower?.activity === "GOING_HOME" && "Returning to charging station"}
+          {!selectedMower?.isOffline && selectedMower?.activity === "STOPPED_IN_GARDEN" && "Stopped and waiting for action"}
+          {!selectedMower?.isOffline && selectedMower?.status === "error" && "Requires attention: check error details"}
         </div>
       </CardFooter>
     </Card>

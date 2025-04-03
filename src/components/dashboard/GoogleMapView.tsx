@@ -536,7 +536,8 @@ export function GoogleMapView({
   useEffect(() => {
     if (!mapLoaded || !mapInstanceRef.current) return;
 
-    console.log("Updating map markers with mowers:", mowers);
+    // Use a more descriptive log that doesn't log the full object every time
+    console.log(`Updating map markers with ${mowers.length} mowers`);
 
     // Clear existing markers
     for (const marker of Object.values(markerRefs.current)) {
@@ -927,16 +928,17 @@ export function GoogleMapView({
       clearInterval(visibilityInterval);
       clearTimeout(resizeTimer);
       
-      // Clean up all markers
-      for (const markerId in markerRefs.current) {
-        const marker = markerRefs.current[markerId] as EnhancedMarker;
-        const imageMarker = marker.imageMarker;
-        
-        if (marker) marker.setMap(null);
-        if (imageMarker) imageMarker.setMap(null);
+      // Clear all markers on cleanup
+      for (const marker of Object.values(markerRefs.current)) {
+        marker.setMap(null);
+      }
+      
+      // Clear all polygons on cleanup
+      for (const polygon of zonePolygonRefs.current) {
+        polygon.setMap(null);
       }
     };
-  }, [mowers, mapLoaded, onMowerSelect, effectiveZoom, showZones, renderZones]);
+  }, [mapLoaded, mowers, mapInstanceRef.current, onMowerSelect, showZones]);
 
   // Helper function to get color based on mower status
   const getStatusColor = (status: MowerLocation["status"]): string => {

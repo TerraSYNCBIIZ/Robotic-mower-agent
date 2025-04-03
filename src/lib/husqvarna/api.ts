@@ -37,6 +37,7 @@ export interface MowerData {
           name?: string;
           id?: number;
         }>;
+        workAreaId?: number;
       }>;
     };
     zones?: {
@@ -108,6 +109,22 @@ interface EnhancedZoneData extends ZoneData {
   progress?: number;
   lastCompleted?: number;
   [key: string]: any; // Allow for additional properties
+}
+
+// Define a type for calendar tasks
+interface CalendarTask {
+  start: number;
+  duration: number;
+  monday: boolean;
+  tuesday: boolean;
+  wednesday: boolean;
+  thursday: boolean;
+  friday: boolean;
+  saturday: boolean;
+  sunday: boolean;
+  workAreaId?: number;
+  workAreaName?: string;
+  [key: string]: any; // Allow additional properties
 }
 
 // Class to handle Husqvarna API requests
@@ -355,7 +372,7 @@ export class HusqvarnaClient {
   // Helper to create headers with authorization
   private getRequestHeaders(): Record<string, string> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/vnd.api+json',
       'Accept': 'application/vnd.api+json',
       'X-Api-Key': this.appKey,
       'Authorization-Provider': 'husqvarna'
@@ -366,7 +383,20 @@ export class HusqvarnaClient {
       headers['Authorization'] = `Bearer ${this.accessToken}`;
     }
     
+    console.log('API Request Headers:', Object.keys(headers).join(', '));
+    
     return headers;
+  }
+
+  /**
+   * Helper method to determine if a mower is EPOS or Ceora model
+   * These models use a different endpoint for calendar data
+   */
+  private isEPOSorCeora(model: string): boolean {
+    if (!model) return false;
+    return model.includes('550') || 
+           model.toUpperCase().includes('EPOS') || 
+           model.toUpperCase().includes('CEORA');
   }
 
   // Get details for a specific mower
@@ -375,7 +405,8 @@ export class HusqvarnaClient {
       const baseUrl = this.getBaseUrl();
       
       // Use proxy API to avoid CORS issues
-      const response = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}`, {
+      // Explicitly include calendar parameter to ensure we get schedule data
+      const response = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}?include=calendar`, {
         method: 'GET',
         headers: this.getRequestHeaders(),
         credentials: 'include', // Include cookies for authentication
@@ -388,6 +419,15 @@ export class HusqvarnaClient {
       }
 
       const data = await response.json();
+      
+      // Log calendar data specifically to debug schedule issues
+      if (data.data?.attributes?.calendar) {
+        console.log(`[API] Calendar data for mower ${mowerId}:`, 
+          JSON.stringify(data.data.attributes.calendar, null, 2));
+      } else {
+        console.log(`[API] No calendar data found for mower ${mowerId}`);
+      }
+      
       return data.data;
     } catch (error) {
       console.error(`❌ Error fetching mower ${mowerId}:`, error);
@@ -395,55 +435,412 @@ export class HusqvarnaClient {
     }
   }
 
-  // Send a command to the mower (e.g., start, pause, park)
-  async sendCommand(mowerId: string, command: string, duration?: number): Promise<void> {
-    let requestBody;
-    
-    switch (command) {
-      case 'start':
-        requestBody = {
-          data: {
-            type: 'Start',
-            attributes: {
-              duration: duration || 240
+  /**
+   * Get calendar data for a mower, specifically designed to handle both EPOS and standard models
+   * @param mowerId The ID of the mower
+   * @param model The mower model string (used to determine if it's an EPOS model)
+   * @param workAreaId Optional work area ID for EPOS models
+   * @returns Promise resolving to calendar data structure
+   */
+  async getMowerCalendar(mowerId: string, model?: string, workAreaId?: number): Promise<any> {
+    try {
+      const baseUrl = this.getBaseUrl();
+      
+      // Check if it's an EPOS/NERA/550/520/CEORA model
+      const isEposMower = model && (
+        model.includes('EPOS') || 
+        model.includes('NERA') || 
+        model.includes('550') || 
+        model.includes('520') ||
+        model.includes('CEORA')
+      );
+      
+      // ENHANCED APPROACH FOR EPOS MODELS:
+      // 1. Get all work areas first to identify which areas exist and their names
+      // 2. Fetch individual work area calendars for each area
+      // 3. Combine into a single calendar with proper area identification
+      if (isEposMower) {
+        console.log(`[API] EPOS model detected (${model}), using enhanced approach for calendar`);
+        
+        try {
+          // Step 1: Get all work areas for the mower
+          const workAreasUrl = `${baseUrl}/api/proxy/mowers/${mowerId}/workAreas`;
+          console.log(`[API] Fetching all work areas from: ${workAreasUrl}`);
+          
+          const workAreasResponse = await fetch(workAreasUrl, {
+            method: 'GET',
+            headers: this.getRequestHeaders(),
+            credentials: 'include',
+          });
+          
+          if (!workAreasResponse.ok) {
+            console.log(`[API] Failed to get work areas, status: ${workAreasResponse.status}`);
+            // Will continue with fallback approaches
+          } else {
+            const workAreasData = await workAreasResponse.json();
+            const workAreas = workAreasData?.data || [];
+            
+            if (Array.isArray(workAreas) && workAreas.length > 0) {
+              console.log(`[API] Found ${workAreas.length} work areas for EPOS mower`);
+              console.log(`[API] Raw work areas response:`, JSON.stringify(workAreas, null, 2));
+              
+              // Collect all tasks from all work areas
+              const allTasks: any[] = [];
+              
+              // Step 2: Fetch calendar for each work area separately using our dedicated method
+              // This ensures we preserve exact scheduling information
+              for (const area of workAreas) {
+                const areaId = area.attributes?.workAreaId;
+                if (areaId === undefined) continue;
+                
+                // Use our dedicated method to get accurate calendar data for this work area
+                const workAreaCalendar = await this.getMowerWorkAreaCalendar(mowerId, areaId);
+                
+                if (workAreaCalendar.tasks && workAreaCalendar.tasks.length > 0) {
+                  console.log(`[API] Adding ${workAreaCalendar.tasks.length} tasks from work area "${workAreaCalendar.workAreaName}"`);
+                  
+                  // Log the day settings for each task to ensure they're correct
+                  workAreaCalendar.tasks.forEach((task: any, i: number) => {
+                    console.log(`[API] Task ${i} from work area ${areaId} day settings:`, {
+                      monday: task.monday,
+                      tuesday: task.tuesday,
+                      wednesday: task.wednesday,
+                      thursday: task.thursday,
+                      friday: task.friday,
+                      saturday: task.saturday,
+                      sunday: task.sunday
+                    });
+                    
+                    // Count enabled days
+                    const enabledDays = [
+                      task.monday === true,
+                      task.tuesday === true,
+                      task.wednesday === true,
+                      task.thursday === true,
+                      task.friday === true,
+                      task.saturday === true,
+                      task.sunday === true
+                    ].filter(Boolean).length;
+                    
+                    console.log(`[API] Task ${i} from work area ${areaId} has ${enabledDays} enabled days`);
+                    
+                    // Explicitly validate that we have boolean values for each day
+                    const nonBooleanDays = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+                      .filter(day => typeof task[day] !== 'boolean');
+                    
+                    if (nonBooleanDays.length > 0) {
+                      console.warn(`[API] Task ${i} from work area ${areaId} has non-boolean values for days: ${nonBooleanDays.join(', ')}`);
+                      
+                      // Ensure days are properly set as boolean
+                      const fixedTask = {...task};
+                      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach(day => {
+                        if (typeof fixedTask[day] !== 'boolean') {
+                          // Only set to true if the value is explicity true (string 'true' or number 1)
+                          const value = fixedTask[day];
+                          fixedTask[day] = value === true || value === 'true' || value === 1;
+                          console.log(`[API] Fixed day ${day} from ${value} to ${fixedTask[day]}`);
+                        }
+                      });
+                      
+                      // Replace the task in the array
+                      workAreaCalendar.tasks[i] = fixedTask;
+                    }
+                  });
+                  
+                  // Add tasks to our collection, preserving all original properties
+                  allTasks.push(...workAreaCalendar.tasks);
+                } else {
+                  console.log(`[API] No tasks found for work area ${areaId}`);
+                }
+              }
+              
+              // If we found tasks from any work area, return them
+              if (allTasks.length > 0) {
+                console.log(`[API] Successfully retrieved ${allTasks.length} tasks from ${workAreas.length} work areas`);
+                console.log(`[API] Sample task data:`, allTasks.length > 0 ? JSON.stringify(allTasks[0], null, 2) : 'No tasks');
+                return { tasks: allTasks };
+              }
+              
+              console.log(`[API] No tasks found in any work areas, falling back to standard endpoints`);
+            } else {
+              console.log(`[API] No work areas found for EPOS mower, falling back to standard endpoints`);
             }
           }
-        };
-        break;
-      case 'pause':
-        requestBody = {
-          data: {
-            type: 'Pause'
+        } catch (eposError) {
+          console.log(`[API] Error in EPOS enhanced approach:`, eposError);
+          // Will continue with fallback approaches
+        }
+      }
+      
+      // For specific work areas, if requested
+      if (isEposMower && workAreaId !== undefined) {
+        try {
+          // First get the work area name if we can
+          let workAreaName = `Area ${workAreaId}`;
+          try {
+            const areaResponse = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/workAreas/${workAreaId}`, {
+              method: 'GET',
+              headers: this.getRequestHeaders(),
+              credentials: 'include',
+            });
+            
+            if (areaResponse.ok) {
+              const areaData = await areaResponse.json();
+              if (areaData?.data?.attributes?.name) {
+                workAreaName = areaData.data.attributes.name;
+                console.log(`[API] Found name "${workAreaName}" for work area ${workAreaId}`);
+              }
+            }
+          } catch (nameError) {
+            console.log(`[API] Error getting name for work area ${workAreaId}:`, nameError);
           }
-        };
-        break;
-      case 'park':
-        requestBody = {
-          data: {
-            type: 'ParkUntilFurtherNotice'
+          
+          const workAreaUrl = `${baseUrl}/api/proxy/mowers/${mowerId}/workAreas/${workAreaId}/calendar`;
+          console.log(`[API] Fetching from work area calendar endpoint: ${workAreaUrl}`);
+          
+          const workAreaResponse = await fetch(workAreaUrl, {
+            method: 'GET',
+            headers: this.getRequestHeaders(),
+            credentials: 'include',
+          });
+          
+          if (workAreaResponse.ok) {
+            const data = await workAreaResponse.json();
+            console.log(`[API] Work area calendar response:`, JSON.stringify(data, null, 2));
+            
+            // EPOS response format check
+            if (data?.data?.attributes?.tasks && data.data.attributes.tasks.length > 0) {
+              console.log(`[API] Successfully retrieved ${data.data.attributes.tasks.length} calendar tasks for work area ${workAreaId}`);
+              
+              // Add workAreaId to each task if not already present
+              const enhancedTasks = data.data.attributes.tasks.map((task: CalendarTask) => ({
+                ...task,
+                workAreaId: task.workAreaId !== undefined ? task.workAreaId : workAreaId,
+                workAreaName: workAreaName
+              }));
+              
+              return { tasks: enhancedTasks };
+            }
           }
-        };
-        break;
-      case 'parkUntilNext':
-        requestBody = {
-          data: {
-            type: 'ParkUntilNextSchedule'
+        } catch (eposError) {
+          console.log(`[API] Error fetching work area calendar: ${eposError}`);
+        }
+      }
+      
+      // Step 2: Try the standard calendar endpoint for all models
+      try {
+        const standardUrl = `${baseUrl}/api/proxy/mowers/${mowerId}/calendar`;
+        console.log(`[API] Fetching from standard calendar endpoint: ${standardUrl}`);
+        
+        const standardResponse = await fetch(standardUrl, {
+          method: 'GET',
+          headers: this.getRequestHeaders(),
+          credentials: 'include',
+        });
+        
+        if (standardResponse.ok) {
+          const data = await standardResponse.json();
+          console.log(`[API] Standard calendar response:`, JSON.stringify(data, null, 2));
+          
+          // Many models return data in this format
+          if (data?.data?.attributes?.tasks && data.data.attributes.tasks.length > 0) {
+            const tasks = data.data.attributes.tasks;
+            console.log(`[API] Successfully retrieved ${tasks.length} standard calendar tasks`);
+            
+            // For EPOS models, try to enhance tasks with work area information
+            if (isEposMower) {
+              // Get work area names and add them to the tasks
+              try {
+                const workAreasResponse = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/workAreas`, {
+                  method: 'GET',
+                  headers: this.getRequestHeaders(),
+                  credentials: 'include',
+                });
+                
+                if (workAreasResponse.ok) {
+                  const workAreasData = await workAreasResponse.json();
+                  const workAreas = workAreasData?.data || [];
+                  
+                  // Create a map of work area IDs to names
+                  const workAreaNames: Record<string, string> = {};
+                  if (Array.isArray(workAreas)) {
+                    workAreas.forEach(area => {
+                      if (area.attributes?.workAreaId !== undefined) {
+                        workAreaNames[area.attributes.workAreaId] = area.attributes?.name || `Area ${area.attributes.workAreaId}`;
+                      }
+                    });
+                  }
+                  
+                  // Enhance tasks with work area names
+                  const enhancedTasks = tasks.map((task: CalendarTask) => {
+                    if (task.workAreaId !== undefined && workAreaNames[task.workAreaId]) {
+                      return {
+                        ...task,
+                        workAreaName: workAreaNames[task.workAreaId]
+                      };
+                    }
+                    return task;
+                  });
+                  
+                  return { tasks: enhancedTasks };
+                }
+              } catch (enhanceError) {
+                console.log(`[API] Error enhancing tasks with work area names:`, enhanceError);
+              }
+            }
+            
+            return data.data.attributes;
           }
-        };
-        break;
-      case 'resume':
-        requestBody = {
-          data: {
-            type: 'ResumeSchedule'
+        }
+      } catch (standardError) {
+        console.log(`[API] Error fetching standard calendar: ${standardError}`);
+      }
+      
+      // Step 3: For older models (like 315X), try to get calendar data directly from mower endpoint
+      try {
+        console.log(`[API] Trying to extract calendar from mower data as final fallback`);
+        const mowerUrl = `${baseUrl}/api/proxy/mowers/${mowerId}?include=calendar`;
+        
+        const mowerResponse = await fetch(mowerUrl, {
+          method: 'GET',
+          headers: this.getRequestHeaders(),
+          credentials: 'include',
+        });
+        
+        if (mowerResponse.ok) {
+          const data = await mowerResponse.json();
+          console.log(`[API] Mower data calendar section:`, 
+                     JSON.stringify(data?.data?.attributes?.calendar, null, 2));
+          
+          // Standard format for older models like the 315X
+          if (data?.data?.attributes?.calendar?.tasks) {
+            const tasks = data.data.attributes.calendar.tasks;
+            console.log(`[API] Successfully retrieved ${tasks.length} calendar tasks from mower data`);
+            
+            // Even for older models, try to enhance with work area names if possible
+            try {
+              // Get work area names for any tasks with workAreaId
+              const tasksWithWorkAreaIds = tasks.filter((t: any) => t.workAreaId !== undefined);
+              if (tasksWithWorkAreaIds.length > 0) {
+                const workAreasResponse = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/workAreas`, {
+          method: 'GET',
+          headers: this.getRequestHeaders(),
+          credentials: 'include',
+        });
+        
+                if (workAreasResponse.ok) {
+                  const workAreasData = await workAreasResponse.json();
+                  const workAreas = workAreasData?.data || [];
+                  
+                  // Create a map of work area IDs to names
+                  const workAreaNames: Record<string, string> = {};
+                  if (Array.isArray(workAreas)) {
+                    workAreas.forEach((area: any) => {
+                      if (area.attributes?.workAreaId !== undefined) {
+                        workAreaNames[area.attributes.workAreaId] = area.attributes?.name || 
+                          `Area ${area.attributes.workAreaId}`;
+                      }
+                    });
+                  }
+                  
+                  // Enhance tasks with work area names
+                  const enhancedTasks = tasks.map((task: any) => {
+                    if (task.workAreaId !== undefined && workAreaNames[task.workAreaId]) {
+                      return {
+                        ...task,
+                        workAreaName: workAreaNames[task.workAreaId]
+                      };
+                    }
+                    return task;
+                  });
+                  
+                  return { tasks: enhancedTasks };
+                }
+              }
+            } catch (err) {
+              console.log(`[API] Error enhancing older model tasks with work area names:`, err);
+            }
+            
+            return { tasks };
           }
-        };
-        break;
-      default:
-        throw new Error(`Unknown command: ${command}`);
+        }
+      } catch (mowerError) {
+        console.log(`[API] Error fetching mower data for calendar: ${mowerError}`);
+      }
+      
+      // Return empty tasks array if all methods failed
+      console.log(`[API] No calendar tasks found for mower ${mowerId} after trying all methods`);
+      return { tasks: [] };
+    } catch (error) {
+      console.error(`[API] Error in getMowerCalendar: ${error}`);
+      return { tasks: [] };
+    }
+  }
+
+  // Send a command to the mower (e.g., start, pause, park)
+  async sendCommand(mowerId: string, command: string, attributes?: Record<string, any>): Promise<void> {
+    let requestBody;
+    
+    // Handle legacy command strings and convert to proper Husqvarna API format
+    if (command === 'start' || command === 'pause' || command === 'park' || 
+        command === 'parkUntilNext' || command === 'resume') {
+      // Legacy string command conversion
+      switch (command) {
+        case 'start':
+          requestBody = {
+            data: {
+              type: 'Start',
+              attributes: {
+                duration: attributes?.duration || 240
+              }
+            }
+          };
+          break;
+        case 'pause':
+          requestBody = {
+            data: {
+              type: 'Pause'
+            }
+          };
+          break;
+        case 'park':
+          requestBody = {
+            data: {
+              type: 'ParkUntilFurtherNotice'
+            }
+          };
+          break;
+        case 'parkUntilNext':
+          requestBody = {
+            data: {
+              type: 'ParkUntilNextSchedule'
+            }
+          };
+          break;
+        case 'resume':
+          requestBody = {
+            data: {
+              type: 'ResumeSchedule'
+            }
+          };
+          break;
+        default:
+          throw new Error(`Unknown command: ${command}`);
+      }
+    } else {
+      // Direct API command format (new approach)
+      requestBody = {
+        data: {
+          type: command,
+          ...(attributes && Object.keys(attributes).length > 0 ? { attributes } : {})
+        }
+      };
     }
 
     try {
       const baseUrl = this.getBaseUrl();
+      
+      console.log(`📤 Sending ${command} command to mower ${mowerId}:`, JSON.stringify(requestBody, null, 2));
       
       // Use proxy API to avoid CORS issues
       const response = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/actions`, {
@@ -457,6 +854,17 @@ export class HusqvarnaClient {
         const errorBody = await response.text();
         console.error(`🚫 Failed to send command: ${response.status} ${response.statusText}`, errorBody);
         throw new Error(`Failed to send command: ${response.status} ${response.statusText}`);
+      }
+      
+      console.log(`✅ Command ${command} successfully sent to mower ${mowerId}`);
+      
+      // Try to parse the response
+      try {
+        const responseData = await response.json();
+        console.log('Command response:', responseData);
+      } catch (parseError) {
+        // If the response is not JSON, just log that we received a response
+        console.log('Command successful - response body not JSON or empty');
       }
     } catch (error) {
       console.error(`❌ Error sending command to mower ${mowerId}:`, error);
@@ -672,6 +1080,124 @@ export class HusqvarnaClient {
     } catch (error) {
       console.error(`❌ Error updating schedule for mower ${mowerId}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Get calendar data for a specific work area of a mower
+   * This method directly accesses the specific work area calendar endpoint
+   * @param mowerId The ID of the mower
+   * @param workAreaId The ID of the work area
+   * @returns Promise resolving to calendar data for the specific work area
+   */
+  async getMowerWorkAreaCalendar(mowerId: string, workAreaId: number): Promise<any> {
+    try {
+      const baseUrl = this.getBaseUrl();
+      
+      // First get the work area name if we can
+      let workAreaName = `Area ${workAreaId}`;
+      try {
+        const areaResponse = await fetch(`${baseUrl}/api/proxy/mowers/${mowerId}/workAreas/${workAreaId}`, {
+          method: 'GET',
+          headers: this.getRequestHeaders(),
+          credentials: 'include',
+        });
+        
+        if (areaResponse.ok) {
+          const areaData = await areaResponse.json();
+          // Log the raw response for debugging
+          console.log(`[API] Raw work area data for ${workAreaId}:`, JSON.stringify(areaData, null, 2));
+          
+          if (areaData?.data?.attributes?.name) {
+            workAreaName = areaData.data.attributes.name;
+            console.log(`[API] Found name "${workAreaName}" for work area ${workAreaId}`);
+          }
+        }
+      } catch (nameError) {
+        console.log(`[API] Error getting name for work area ${workAreaId}:`, nameError);
+      }
+      
+      // Now fetch the calendar for this specific work area
+      const workAreaUrl = `${baseUrl}/api/proxy/mowers/${mowerId}/workAreas/${workAreaId}/calendar`;
+      console.log(`[API] Fetching from specific work area calendar endpoint: ${workAreaUrl}`);
+      
+      const workAreaResponse = await fetch(workAreaUrl, {
+        method: 'GET',
+        headers: this.getRequestHeaders(),
+        credentials: 'include',
+      });
+      
+      if (workAreaResponse.ok) {
+        const data = await workAreaResponse.json();
+        // Log the raw calendar response for debugging
+        console.log(`[API] Work area calendar raw response:`, JSON.stringify(data, null, 2));
+        
+        // EPOS response format check
+        if (data?.data?.attributes?.tasks && Array.isArray(data.data.attributes.tasks)) {
+          const tasks = data.data.attributes.tasks;
+          console.log(`[API] Successfully retrieved ${tasks.length} calendar tasks for work area ${workAreaId}`);
+          
+          // Log the original task day settings before any modifications
+          if (tasks.length > 0) {
+            const sampleTask = tasks[0];
+            console.log(`[API] Original sample task day settings for ${workAreaId}:`, {
+              monday: sampleTask.monday,
+              tuesday: sampleTask.tuesday,
+              wednesday: sampleTask.wednesday,
+              thursday: sampleTask.thursday,
+              friday: sampleTask.friday,
+              saturday: sampleTask.saturday,
+              sunday: sampleTask.sunday
+            });
+          }
+          
+          // IMPORTANT: Do not modify the day settings - preserve exactly which days are scheduled
+          const enhancedTasks = tasks.map((task: any) => {
+            const enhancedTask = {
+              ...task,
+              workAreaId: task.workAreaId !== undefined ? task.workAreaId : workAreaId,
+              workAreaName: workAreaName
+            };
+            
+            return enhancedTask;
+          });
+          
+          // Log the enhanced task day settings to verify they're unchanged
+          if (enhancedTasks.length > 0) {
+            const sampleTask = enhancedTasks[0];
+            console.log(`[API] Enhanced sample task day settings for ${workAreaId}:`, {
+              monday: sampleTask.monday,
+              tuesday: sampleTask.tuesday,
+              wednesday: sampleTask.wednesday,
+              thursday: sampleTask.thursday,
+              friday: sampleTask.friday,
+              saturday: sampleTask.saturday,
+              sunday: sampleTask.sunday
+            });
+          }
+          
+          return { 
+            workAreaId,
+            workAreaName,
+            tasks: enhancedTasks 
+          };
+        }
+      }
+      
+      // Return empty tasks if no calendar found
+      return { 
+        workAreaId,
+        workAreaName,
+        tasks: [] 
+      };
+      
+    } catch (error) {
+      console.error(`[API] Error fetching work area calendar for ${workAreaId}:`, error);
+      return { 
+        workAreaId,
+        workAreaName: `Area ${workAreaId}`,
+        tasks: [] 
+      };
     }
   }
 } 
