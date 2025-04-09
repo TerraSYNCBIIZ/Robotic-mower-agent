@@ -37,4 +37,4 @@ next-env.d.ts
 /logs
 
 # scheduler service virtualenv
-/scheduler-service/venv/ 
+/scheduler-service/venv/ robotic-mower-agent-firebase-adminsdk-fbsvc-7b5370108d.json
