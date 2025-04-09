@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Home, MessageSquare, Calendar, LogOut } from "lucide-react";
+import { Home, MessageSquare, Calendar, LogOut, Code, Wifi } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { MoonIcon, SunIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AuthStatus } from "@/components/AuthStatus";
 import { useAuth } from "./AuthProvider";
 import {
   DropdownMenu,
@@ -18,48 +17,32 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ConnectionStatusIcons } from "@/components/dashboard/ConnectionStatusIcons";
-import { WebSocketStatus, HusqvarnaWebSocketManager } from "@/lib/husqvarna/websocket";
+import { ConnectionStatusIcons, WebSocketStatus } from "@/components/dashboard/ConnectionStatusIcons";
 import { useMowerData } from "@/contexts/MowerDataContext";
 import { WebSocketToggleButton } from "@/components/dashboard/WebSocketToggleButton";
-import { getMowerDataService } from "@/lib/husqvarna/mower-data-service-provider";
+import MiniProxyWebSocketStatus from "@/components/MiniProxyWebSocketStatus";
 
 export function Navbar() {
   const pathname = usePathname();
   const { setTheme, theme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const { isAuthenticated, logout } = useAuth();
-  const { dataService } = useMowerData();
+  const { mowers } = useMowerData();
   const [websocketStatus, setWebsocketStatus] = useState<WebSocketStatus>(WebSocketStatus.DISCONNECTED);
   const [apiConnected, setApiConnected] = useState<boolean>(false);
   
-  // Monitor websocket status
+  // Simulate connection status
   useEffect(() => {
-    if (!dataService) return;
+    // Simulate API connection if we have mower data
+    setApiConnected(mowers.length > 0);
     
-    // Set initial status directly from the WebSocket manager singleton
-    const wsManager = HusqvarnaWebSocketManager.getInstance();
-    const currentStatus = wsManager.getStatus();
-    setWebsocketStatus(currentStatus);
+    // Simulate websocket connection after a delay
+    const timer = setTimeout(() => {
+      setWebsocketStatus(WebSocketStatus.CONNECTED);
+    }, 2000);
     
-    setApiConnected(true); // Assume API is connected if we have a data service
-    
-    // Listen for global WebSocket status changes
-    const handleWsStatusChange = (event: Event) => {
-      const detail = (event as CustomEvent).detail;
-      setWebsocketStatus(detail.status);
-    };
-    
-    // Add event listener
-    window.addEventListener('websocket-status-change', handleWsStatusChange);
-    
-    // No need for polling with the global event system and singleton WebSocketManager
-    
-    // Clean up
-    return () => {
-      window.removeEventListener('websocket-status-change', handleWsStatusChange);
-    };
-  }, [dataService]);
+    return () => clearTimeout(timer);
+  }, [mowers]);
   
   // This useEffect ensures hydration is complete before rendering theme-dependent elements
   useEffect(() => {
@@ -81,6 +64,16 @@ export function Navbar() {
       label: "Scheduler",
       href: "/mower-scheduler",
       icon: <Calendar className="h-5 w-5" />,
+    },
+    {
+      label: "API Sandbox",
+      href: "/api-sandbox",
+      icon: <Code className="h-5 w-5" />,
+    },
+    {
+      label: "WebSocket",
+      href: "/websocket",
+      icon: <Wifi className="h-5 w-5" />,
     }
   ];
 
@@ -114,7 +107,10 @@ export function Navbar() {
         </nav>
         
         <div className="ml-auto flex items-center gap-2">
-          {/* Connection status indicators - replacing AuthStatus */}
+          {/* Live WebSocket Status Indicator */}
+          <MiniProxyWebSocketStatus />
+          
+          {/* Connection status indicators */}
           {isAuthenticated && (
             <>
               <ConnectionStatusIcons 

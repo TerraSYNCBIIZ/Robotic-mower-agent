@@ -7,13 +7,17 @@ const protectedRoutes = [
   '/schedule',
   '/zones',
   '/settings',
+  '/chat',
+  '/mower-scheduler',
+  '/mowers',
+  '/api-sandbox',
 ];
 
 // Special routes to exclude from general protection
 const excludedRoutes = [
-  '/mowers/add', // Allow access to mower addition page with OAuth callback
+  '/login', // Allow access to login page
   '/auth-callback', // Exclude auth callback page that processes authentication tokens
-  '/api/auth/husqvarna/callback', // Exclude API callback endpoint
+  '/api/auth/callback', // Exclude API callback endpoint
 ];
 
 export function middleware(request: NextRequest) {
@@ -30,8 +34,8 @@ export function middleware(request: NextRequest) {
     pathname === route || pathname.startsWith(`${route}/`)
   ) || pathname.startsWith('/mowers/') && !pathname.startsWith('/mowers/add');
   
-  // Get token from cookies or authorization header
-  const token = request.cookies.get('mowerAccessToken')?.value ||
+  // Get token from cookies or authorization header - use userAccessToken instead of mowerAccessToken
+  const token = request.cookies.get('userAccessToken')?.value ||
                 request.headers.get('authorization')?.replace('Bearer ', '');
   
   // If it's a protected route and there's no token, redirect to login

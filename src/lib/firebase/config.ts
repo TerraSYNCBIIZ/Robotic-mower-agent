@@ -7,13 +7,13 @@ import { getAuth, Auth } from "firebase/auth";
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyAq3lL6rcXVyp152uO5TMb4L3oMsPU11oU",
-  authDomain: "robotic-mower-agent.firebaseapp.com",
-  projectId: "robotic-mower-agent",
-  storageBucket: "robotic-mower-agent.appspot.com",
-  messagingSenderId: "457311456480",
-  appId: "1:457311456480:web:d71b1ca004a50009fbd485",
-  measurementId: "G-642084TXE8"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
 
 // Initialize Firebase

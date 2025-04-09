@@ -1,11 +1,12 @@
 'use client';
 
 import React, { useEffect, useState } from "react";
-import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw, Tag, AlertTriangle, BatteryCharging, Home, CornerDownLeft, CornerUpRight, Wifi } from "lucide-react";
-import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
+import { Battery, Clock, Gauge, AlertCircle, Play, Pause, Wrench, RefreshCw, Tag, AlertTriangle, BatteryCharging, Home, CornerDownLeft, CornerUpRight, Wifi, Info, Settings, BarChart3, Zap, CalendarClock } from "lucide-react";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
@@ -44,6 +45,7 @@ export interface MowerCardProps {
   };
   isChargingWhileParked?: boolean;
   nextStartTime?: string;
+  isConnected?: boolean;
 }
 
 // Add this ChargingIndicator component
@@ -75,6 +77,17 @@ const OfflineIndicator = () => {
   );
 };
 
+// Define status color map type
+type StatusColorMap = {
+  [key: string]: {
+    bg: string;
+    text: string;
+    icon: React.ReactNode;
+  };
+};
+
+export type MowerStatus = 'mowing' | 'charging' | 'idle' | 'error' | 'offline' | 'returning' | 'parked' | 'online' | 'paused' | 'leaving';
+
 export function MowerCard({
   name,
   status,
@@ -95,6 +108,7 @@ export function MowerCard({
   pendingCommand,
   isChargingWhileParked,
   nextStartTime,
+  isConnected = true
 }: MowerCardProps) {
   // Add state to track area completion locally for better persistence
   const [localAreaComplete, setLocalAreaComplete] = useState<string>(areaComplete || 'N/A');
@@ -338,6 +352,70 @@ export function MowerCard({
     // @ts-ignore - This might be a custom field from the dashboard
     (status === 'parked' && typeof isChargingWhileParked === 'boolean' && isChargingWhileParked);
 
+  // Status color mapping
+  const statusColors: StatusColorMap = {
+    mowing: { bg: 'bg-green-500/20', text: 'text-green-600', icon: <Zap className="h-4 w-4" /> },
+    charging: { bg: 'bg-blue-500/20', text: 'text-blue-600', icon: <Battery className="h-4 w-4" /> },
+    parked: { bg: 'bg-gray-500/20', text: 'text-gray-600', icon: <BarChart3 className="h-4 w-4" /> },
+    idle: { bg: 'bg-yellow-500/20', text: 'text-yellow-600', icon: <Clock className="h-4 w-4" /> },
+    returning: { bg: 'bg-purple-500/20', text: 'text-purple-600', icon: <Clock className="h-4 w-4" /> },
+    offline: { bg: 'bg-gray-500/20', text: 'text-gray-600', icon: <Info className="h-4 w-4" /> },
+    error: { bg: 'bg-red-500/20', text: 'text-red-600', icon: <Info className="h-4 w-4" /> },
+    online: { bg: 'bg-green-500/20', text: 'text-green-600', icon: <Zap className="h-4 w-4" /> },
+    paused: { bg: 'bg-yellow-500/20', text: 'text-yellow-600', icon: <Clock className="h-4 w-4" /> },
+    leaving: { bg: 'bg-blue-500/20', text: 'text-blue-600', icon: <BarChart3 className="h-4 w-4" /> }
+  };
+  
+  // Get status color
+  const statusColor = statusColors[status] || statusColors.offline;
+  
+  // Battery level color
+  const getBatteryColor = (level: number) => {
+    if (level > 70) return 'bg-green-500';
+    if (level > 30) return 'bg-yellow-500';
+    return 'bg-red-500';
+  };
+  
+  // Format last updated time
+  const formatLastUpdated = (date: Date | null | undefined) => {
+    if (!date) return 'Unknown';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    
+    if (diffMin < 1) return 'Just now';
+    if (diffMin < 60) return `${diffMin}m ago`;
+    
+    const diffHrs = Math.floor(diffMin / 60);
+    if (diffHrs < 24) return `${diffHrs}h ago`;
+    
+    return date.toLocaleDateString();
+  };
+  
+  // Data source badge
+  const getDataSourceBadge = () => {
+    switch (dataSource) {
+      case 'firebase':
+        return <Badge variant="outline" className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Real-time</Badge>;
+      case 'websocket':
+        return <Badge variant="outline" className="bg-blue-500/10 text-blue-500 border-blue-500/20">WebSocket</Badge>;
+      case 'api_poll':
+      default:
+        return <Badge variant="outline" className="bg-amber-500/10 text-amber-500 border-amber-500/20">API</Badge>;
+    }
+  };
+
+  // Connection status indicator
+  const getConnectionStatus = () => {
+    if (!isConnected) return null;
+    
+    return (
+      <div className="w-2 h-2 rounded-full animate-pulse bg-green-500 absolute top-4 right-4" 
+        title="Connected and receiving updates" />
+    );
+  };
+
   return (
     <Card 
       className={cn(
@@ -348,6 +426,8 @@ export function MowerCard({
       )}
       onClick={handleClick}
     >
+      {getConnectionStatus()}
+      
       {imageSrc && (
         <div className="relative w-full h-32">
           <Image
@@ -371,9 +451,9 @@ export function MowerCard({
           variant="outline"
           className={cn(
             "font-normal whitespace-nowrap",
-            pendingCommand ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : statusConfig.color,
-            pendingCommand ? "bg-amber-500/10" : statusConfig.bgColor,
-            pendingCommand ? "border-amber-500/20" : statusConfig.borderColor,
+            pendingCommand ? "text-amber-500 bg-amber-500/10 border-amber-500/20" : statusColor.text,
+            pendingCommand ? "bg-amber-500/10" : statusColor.bg,
+            pendingCommand ? "border-amber-500/20" : statusColor.borderColor,
             "w-full justify-center py-1.5 my-1 flex items-center"
           )}
         >
@@ -384,7 +464,7 @@ export function MowerCard({
             </>
           ) : (
             <>
-              {statusConfig.pulsing ? (
+              {statusColor.pulsing ? (
                 // Add pulsing dot for offline status
                 <span className="relative flex h-2 w-2 mr-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
@@ -393,7 +473,7 @@ export function MowerCard({
               ) : (
                 <StatusIcon className="mr-1.5 h-3.5 w-3.5" />
               )}
-              {statusConfig.label}
+              {statusColor.label}
               
               {/* Show charging indicator for parked mowers with battery < 100% */}
               {status === "parked" && (

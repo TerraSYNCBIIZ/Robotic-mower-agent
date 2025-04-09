@@ -1,93 +1,1138 @@
-// WebSocket Proxy Server for Husqvarna API
-// This server acts as a bridge between browser clients and Husqvarna's WebSocket API
-// AND maintains a persistent connection to collect data regardless of client connections
-import http from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
-import { parse } from 'url';
-import { randomUUID } from 'crypto';
-import { config } from 'dotenv';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { WebSocketServer } from 'ws';
+import WebSocket from 'ws';
 import axios from 'axios';
-import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, collection, serverTimestamp } from 'firebase/firestore';
+import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+import fs from 'fs';
+import crypto from 'node:crypto';
+import firebaseAdmin from './firebase-admin.mjs';
 
-// Get the directory name of the current module
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// Load environment variables
+dotenv.config();
 
-// Load environment variables from parent directory's .env.local file
-config({ path: join(__dirname, '..', '.env.local') });
+// Enable debug logging
+const DEBUG = process.env.DEBUG === 'true';
+const VERBOSE_LOGGING = process.env.VERBOSE_LOGGING === 'true';
+const log = (message, ...args) => {
+  console.log(`[${new Date().toISOString()}] ${message}`, ...args);
+};
+const debug = (...args) => {
+  if (DEBUG && (VERBOSE_LOGGING || args[0]?.startsWith('[ERROR]') || args[0]?.startsWith('[WARN]'))) {
+    log('[DEBUG]', ...args);
+  }
+};
+const logError = (...args) => {
+  console.error(`[${new Date().toISOString()}] [ERROR]`, ...args);
+};
+const logWarning = (...args) => {
+  console.warn(`[${new Date().toISOString()}] [WARN]`, ...args);
+};
+const logEvent = (...args) => {
+  console.log(`[${new Date().toISOString()}] [EVENT]`, ...args);
+};
+
+// Add Firebase-specific logging functions
+const logFirebase = (...args) => {
+  console.log(`[${new Date().toISOString()}] [FIREBASE]`, ...args);
+};
+const logFirebaseQueue = (...args) => {
+  console.log(`[${new Date().toISOString()}] [FIREBASE:QUEUE]`, ...args);
+};
+const logFirebaseSave = (...args) => {
+  console.log(`[${new Date().toISOString()}] [FIREBASE:SAVE]`, ...args);
+};
+const logFirebaseThrottle = (...args) => {
+  console.log(`[${new Date().toISOString()}] [FIREBASE:THROTTLE]`, ...args);
+};
+
+// Determine the directory where this file is located
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Check for required environment variables
+const checkEnvironment = () => {
+  const requiredVars = [
+    'HUSQVARNA_API_KEY',
+    'HUSQVARNA_CLIENT_ID',
+    'HUSQVARNA_CLIENT_SECRET'
+  ];
+  
+  const missing = requiredVars.filter(name => !process.env[name] || process.env[name].includes('placeholder'));
+  
+  if (missing.length > 0) {
+    logError(`Missing or placeholder environment variables: ${missing.join(', ')}`);
+    logError('Please update your .env file with valid credentials');
+    process.exit(1); // Exit process if required credentials are missing
+  }
+};
+
+// Validate environment variables
+checkEnvironment();
+
+// Replace all old Firebase initialization code with this
+let admin = firebaseAdmin;
+let db = admin ? admin.firestore() : null;
+let firebaseInitialized = !!admin;
+
+// Log Firebase initialization status
+if (firebaseInitialized) {
+  log('Firebase Admin SDK initialized successfully, Firestore available');
+  
+  // Initialize Firestore settings
+  db.settings({
+    ignoreUndefinedProperties: true // Ignore undefined fields
+  });
+  
+  // Create initial system record
+  try {
+    db.collection('system').doc('websocket').set({
+      initialized: true,
+      startTime: admin.firestore.FieldValue.serverTimestamp(),
+      connected: false,
+      version: '1.1.0',
+      environment: process.env.NODE_ENV || 'development',
+      lastInitialized: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    logError('Error creating system record:', error);
+  }
+} else {
+  logWarning('Firebase Admin SDK failed to initialize, running without database storage');
+}
 
 // Configuration
-const PORT = process.env.WEBSOCKET_PROXY_PORT || 8000;
+const PORT = process.env.PORT || 8081;
+const HUSQVARNA_API_KEY = process.env.HUSQVARNA_API_KEY;
+const HUSQVARNA_CLIENT_ID = process.env.HUSQVARNA_CLIENT_ID;
+const HUSQVARNA_CLIENT_SECRET = process.env.HUSQVARNA_CLIENT_SECRET;
+const TOKEN_URL = 'https://api.authentication.husqvarnagroup.dev/v1/oauth2/token';
 const HUSQVARNA_WS_URL = 'wss://ws.openapi.husqvarna.dev/v1';
 const HUSQVARNA_API_URL = 'https://api.amc.husqvarna.dev/v1';
-const CONNECTION_TIMEOUT = 60000; // 60 seconds
-const RECONNECT_INTERVAL = 10000; // 10 seconds
-const FIREBASE_UPDATE_THROTTLES = {
-  'position': 10000,        // 10 seconds for position (mowers move slowly but we want responsive tracking)
-  'battery': 30000,         // 30 seconds for battery (was 5 minutes, now faster updates)
-  'mower': 15000,           // 15 seconds for mower status (was 1 minute, now much faster updates)
-  'calendar': 120000,       // 2 minutes for calendar (was 1 hour, now more responsive)
-  'cuttingHeight': 3600000, // 1 hour for cutting height (rarely changes)
-  'headlights': 3600000,    // 1 hour for headlights (rarely changes)
-  'messages': 60000,        // 1 minute for messages (was 2 minutes, now more important)
-  'planner': 30000,         // 30 seconds for planner (was 10 minutes, now much faster)
-  'statistics': 300000,     // 5 minutes for statistics (was 30 minutes, now more frequent)
-  'workAreas': 3600000,     // 1 hour for work areas (was 24 hours, now more responsive)
-  'stayOutZones': 3600000,  // 1 hour for stay out zones (was 24 hours, now more responsive)
-  'settings': 600000,       // 10 minutes for settings (was 30 minutes, now more frequent)
-  'system': 3600000,        // 1 hour for system info (was 24 hours, now more responsive)
-  'errors': 15000,          // 15 seconds for errors (was 1 minute, now very important)
-  'default': 60000          // 1 minute default for unknown types (was 5 minutes)
-};
 
-// Define API polling interval (6 hours = 4 times per day)
-const API_POLL_INTERVAL = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
+// Track connected clients and the Husqvarna WebSocket connection
+const clients = new Set();
+let husqvarnaWs = null;
+let reconnectTimeout = null;
+let authToken = null;
+let tokenExpiry = 0;
+let isReconnecting = false;
 
-// Store active connections for management
-const connections = new Map();
+// Variables to store user token from client
+let userProvidedToken = null;
 
-// Track API polling state
-const apiPollingState = {
-  isRunning: false,
-  lastPollTime: null,
-  scheduledPollTime: null,
-  pollCount: 0
-};
+// Add connection management variables with circuit breaker pattern
+let lastReconnectTime = 0;
+let consecutiveFailures = 0;
+const MIN_RECONNECT_INTERVAL = 30000; // 30 seconds minimum between reconnects
+const CIRCUIT_BREAKER_THRESHOLD = 5; // After 5 consecutive failures, activate circuit breaker
+const CIRCUIT_BREAKER_RESET_TIME = 300000; // 5 minutes pause when circuit breaker trips
+let circuitBreakerUntil = 0; // Timestamp when circuit breaker will reset
 
-/**
- * Fetch user's mowers from Husqvarna API using the user's token
- * @param {string} token - User's authentication token
- * @param {string} apiKey - Husqvarna API key
- * @returns {Promise<{userId: string, mowerIds: string[]}>} Object containing user ID and array of mower IDs
- */
-async function fetchUserMowers(connectionId, token, apiKey) {
+// Token management
+async function getAuthToken() {
   try {
-    console.log(`[${connectionId}] Fetching user information and mowers using token...`);
+    // Check if token is still valid (with 5-minute buffer)
+    const now = Date.now();
+    if (authToken && tokenExpiry > now + 300000) {
+      debug('Using existing auth token');
+      return authToken;
+    }
     
-    // First, get the user ID by calling the /me endpoint
-    const meResponse = await axios.get(`${HUSQVARNA_API_URL}/users/me`, {
+    log('Getting new auth token...');
+    
+    const params = new URLSearchParams();
+    params.append('grant_type', 'client_credentials');
+    params.append('client_id', HUSQVARNA_CLIENT_ID);
+    params.append('client_secret', HUSQVARNA_CLIENT_SECRET);
+    
+    const response = await axios.post(TOKEN_URL, params, {
       headers: {
-        'Authorization': `Bearer ${token}`,
-        'X-Api-Key': apiKey,
-        'Authorization-Provider': 'husqvarna'
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      timeout: 10000 // 10 second timeout for token requests
+    });
+    
+    if (!response.data || !response.data.access_token) {
+      throw new Error('Invalid token response: missing access_token');
+    }
+    
+    authToken = response.data.access_token;
+    // Set expiry time (convert seconds to milliseconds and subtract 5 minutes for safety)
+    const expiresIn = response.data.expires_in || 1800; // Default to 30 minutes if not provided
+    tokenExpiry = now + (expiresIn * 1000) - 300000;
+    
+    log('New auth token obtained, expires in', 
+      Math.floor((tokenExpiry - now) / 60000), 'minutes');
+    
+    // Broadcast token refresh event to clients (for debugging)
+    if (DEBUG) {
+      broadcastToClients({
+        type: 'debug',
+        event: 'token_refresh',
+        expires_in: Math.floor((tokenExpiry - now) / 60000),
+        timestamp: new Date().toISOString()
+      });
+    }
+    
+    return authToken;
+  } catch (err) {
+    logError('Failed to get auth token:', err.message);
+    if (err.response) {
+      logError('Response status:', err.response.status);
+      logError('Response data:', JSON.stringify(err.response.data, null, 2));
+    } else if (err.request) {
+      logError('No response received, network issue');
+    }
+    
+    // Reset token state
+    authToken = null;
+    tokenExpiry = 0;
+    
+    throw err;
+  }
+}
+
+// Create HTTP server
+const server = createServer((req, res) => {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+  
+  if (req.url === '/health') {
+    // Simple health check endpoint
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok', 
+      clients: clients.size,
+      connectedToHusqvarna: husqvarnaWs && husqvarnaWs.readyState === WebSocket.OPEN,
+      firebase: admin ? 'connected' : 'disconnected',
+      tokenExpiry: tokenExpiry ? new Date(tokenExpiry).toISOString() : null
+    }));
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+
+// Create WebSocket server
+const wss = new WebSocketServer({ server });
+
+// Throttle mechanism to prevent excessive Firestore writes
+const throttleSettings = {
+  battery: 60000,      // 1 minute
+  position: 30000,     // 30 seconds
+  mower: 60000,        // 1 minute
+  statistics: 300000,  // 5 minutes
+  settings: 300000,    // 5 minutes 
+  calendar: 3600000,   // 1 hour
+  system: 600000,      // 10 minutes
+  headlight: 300000,   // 5 minutes
+  cuttingHeight: 300000, // 5 minutes
+  default: 60000       // Default for any other event types
+};
+
+// Add a list of high-priority events that shouldn't be throttled
+const highPriorityEvents = [
+  'error',                // Always process error events immediately
+  'message',              // Always process user messages immediately
+  'planner'               // Always process schedule changes immediately
+];
+
+const lastUpdates = {
+  // Structure: { mowerId: { dataType: timestamp } }
+};
+
+// Add Firebase operation statistics
+const firebaseStats = {
+  totalOperations: 0,
+  successfulOperations: 0,
+  failedOperations: 0,
+  throttledOperations: 0,
+  queuedOperations: 0,
+  operationQueue: []
+};
+
+function shouldThrottle(mowerId, dataType) {
+  // Never throttle high priority events
+  if (highPriorityEvents.includes(dataType)) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (!lastUpdates[mowerId]) {
+    lastUpdates[mowerId] = {};
+  }
+  
+  const lastUpdate = lastUpdates[mowerId][dataType] || 0;
+  const throttleTime = throttleSettings[dataType] || throttleSettings.default;
+  
+  if (now - lastUpdate < throttleTime) {
+    // Add logging for throttled operations
+    logFirebaseThrottle(`Throttling ${dataType} update for mower ${mowerId}, next update allowed in ${(throttleTime - (now - lastUpdate))/1000}s`);
+    firebaseStats.throttledOperations++;
+    return true;
+  }
+  
+  lastUpdates[mowerId][dataType] = now;
+  return false;
+}
+
+// Function to generate a UUID for message IDs
+function randomUUID() {
+  return crypto.randomUUID ? crypto.randomUUID() : 
+    ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+    );
+}
+
+// Keep-alive ping interval
+let pingInterval = null;
+
+function startPingInterval() {
+  // Clear existing interval
+  if (pingInterval) {
+    clearInterval(pingInterval);
+  }
+  
+  // Send empty message every 60 seconds to keep connection alive
+  // According to Husqvarna docs: "If you want a response, you can instead send an empty message to get an empty message in response"
+  pingInterval = setInterval(() => {
+    if (husqvarnaWs && husqvarnaWs.readyState === WebSocket.OPEN) {
+      husqvarnaWs.send('');
+      debug('Empty message sent to keep connection alive');
+    }
+  }, 60000); // 60 seconds as per documentation
+}
+
+// Schedule reconnection before token expires
+function scheduleReconnection() {
+  // Clear existing timeout
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout);
+  }
+  
+  // Calculate time until token expiry (minus 5 minutes for safety)
+  const now = Date.now();
+  
+  // Husqvarna docs state 2-hour max connection time, so reconnect after 110 minutes regardless of token
+  const maxConnectionTime = 110 * 60 * 1000; // 110 minutes in ms
+  
+  // Use the earlier of token expiry or max connection time
+  const tokenExpireTime = tokenExpiry - now - 300000; // 5 min before token expiry
+  const reconnectTime = Math.min(maxConnectionTime, Math.max(tokenExpireTime, 60000)); // At least 1 minute
+  
+  log(`Scheduling reconnection in ${Math.floor(reconnectTime / 60000)} minutes (token expires in ${Math.floor((tokenExpiry - now) / 60000)} minutes)`);
+  
+  reconnectTimeout = setTimeout(() => {
+    log('Scheduled reconnection triggered');
+    isReconnecting = false;
+    connectToHusqvarna();
+  }, reconnectTime);
+}
+
+// Connect to Husqvarna WebSocket API
+async function connectToHusqvarna() {
+  // Apply circuit breaker pattern
+  const now = Date.now();
+  
+  // Check if we're in a circuit breaker cooldown period
+  if (circuitBreakerUntil > now) {
+    const waitTime = Math.ceil((circuitBreakerUntil - now) / 1000);
+    logWarning(`Circuit breaker active, pausing reconnection attempts for ${waitTime} seconds`);
+    setTimeout(() => {
+      isReconnecting = false;
+      connectToHusqvarna();
+    }, circuitBreakerUntil - now + 1000);
+    return;
+  }
+  
+  // Enforce minimum time between reconnection attempts
+  const timeSinceLastReconnect = now - lastReconnectTime;
+  if (isReconnecting || (timeSinceLastReconnect < MIN_RECONNECT_INTERVAL && lastReconnectTime > 0)) {
+    const waitTime = Math.ceil((MIN_RECONNECT_INTERVAL - timeSinceLastReconnect) / 1000);
+    debug(`Enforcing reconnection cooldown, waiting ${waitTime}s before trying again`);
+    setTimeout(() => {
+      isReconnecting = false;
+      connectToHusqvarna();
+    }, MIN_RECONNECT_INTERVAL - timeSinceLastReconnect + 100);
+    return;
+  }
+  
+  // Update reconnection timestamp and set flag
+  lastReconnectTime = now;
+  isReconnecting = true;
+  
+  try {
+    // Close existing connection if any
+    if (husqvarnaWs) {
+      husqvarnaWs.terminate();
+      husqvarnaWs = null;
+    }
+    
+    // Get a fresh token every time we reconnect to avoid 403 errors
+    // This follows Husqvarna docs recommendation: "Try to renew the application"
+    let token;
+    if (userProvidedToken) {
+      // If using user token from client, keep using it
+      token = userProvidedToken;
+      log('Using token provided by client');
+    } else {
+      // Otherwise force a new token generation
+      authToken = null; // Clear cached token
+      tokenExpiry = 0;  // Reset expiry time
+      token = await getAuthToken();
+      log('Generated fresh token for reconnection');
+    }
+    
+    // Check DNS resolution before connecting
+    try {
+      debug('Checking DNS resolution for Husqvarna WebSocket server...');
+      const { lookup } = await import('dns');
+      const { promisify } = await import('util');
+      const lookupPromise = promisify(lookup);
+      
+      // Extract hostname from WebSocket URL
+      const wsUrl = new URL(HUSQVARNA_WS_URL);
+      await lookupPromise(wsUrl.hostname);
+      debug(`DNS resolution successful for ${wsUrl.hostname}`);
+    } catch (dnsError) {
+      logError(`DNS resolution failed: ${dnsError.message}`);
+      logError('Please check your network connection, firewall settings, or DNS configuration');
+      throw new Error(`Cannot resolve hostname: ${dnsError.message}`);
+    }
+    
+    // Connect to Husqvarna WebSocket with only the Authorization header as per docs
+    log('Connecting to Husqvarna WebSocket...');
+    husqvarnaWs = new WebSocket(HUSQVARNA_WS_URL, {
+      headers: {
+        'Authorization': `Bearer ${token}`
       }
     });
     
-    if (!meResponse.data || !meResponse.data.data || !meResponse.data.data.id) {
-      throw new Error('Could not retrieve user ID from Husqvarna API');
+    // Set up event handlers for Husqvarna WebSocket
+    husqvarnaWs.on('open', async () => {
+      log('Connected to Husqvarna WebSocket');
+      
+      // Reset consecutive failures counter on successful connection
+      consecutiveFailures = 0;
+      
+      // Update connection status in Firestore
+      updateConnectionStatus(true);
+      
+      // Schedule reconnection before token expires
+      scheduleReconnection();
+      
+      // Broadcast connection status to clients
+      broadcastToClients({
+        type: 'status',
+        connected: true,
+        timestamp: new Date().toISOString()
+      });
+      
+      try {
+        // Step 1: Fetch user's mowers from the REST API
+        const { userId, mowerIds } = await fetchUserMowers(token);
+        
+        // Step 2: Initialize with user ID
+        log(`Initializing WebSocket with user ID: ${userId}`);
+        const initMessage = {
+          id: randomUUID(),
+          type: 'initialize',
+          attributes: {
+            userId: userId
+          }
+        };
+        husqvarnaWs.send(JSON.stringify(initMessage));
+        
+        // Step 3: Subscribe to each mower's topic after a short delay
+        setTimeout(() => {
+          if (mowerIds.length === 0) {
+            logWarning('No mowers found to subscribe to');
+          } else {
+            log(`Subscribing to ${mowerIds.length} mowers...`);
+            
+            mowerIds.forEach((mowerId, index) => {
+              setTimeout(() => {
+                log(`Subscribing to mower: ${mowerId}`);
+                const subscribeMessage = {
+                  id: randomUUID(),
+                  type: 'start-subscription',
+                  attributes: {
+                    topics: [`mower/${mowerId}`]
+                  }
+                };
+                husqvarnaWs.send(JSON.stringify(subscribeMessage));
+              }, index * 100); // Stagger subscriptions
+            });
+          }
+        }, 1000); // Wait 1s after initialization
+      } catch (error) {
+        logError('Failed to initialize WebSocket subscriptions:', error);
+      }
+      
+      // Start ping interval to keep connection alive
+      startPingInterval();
+    });
+    
+    husqvarnaWs.on('message', async (data) => {
+      try {
+        // Check if the data is empty or a ping response
+        const messageStr = data.toString();
+        if (!messageStr || messageStr.trim() === '') {
+          debug('Received empty message (ping response)');
+          return;
+        }
+        
+        // Try to parse as JSON
+        let message;
+        try {
+          message = JSON.parse(messageStr);
+          
+          // Handle initial "ready" message specifically 
+          if (message.ready === true && message.connectionId) {
+            log(`WebSocket connection ready with ID: ${message.connectionId}`);
+            return;
+          }
+          
+          // Handle acknowledgment messages for subscriptions
+          if (message.type === 'start-subscription-ack') {
+            log(`Successfully subscribed to topic: ${message.attributes?.topics?.join(', ') || 'unknown'}`);
+            return;
+          }
+          
+          // Handle subscription failure messages
+          if (message.type === 'start-subscription-nack') {
+            logWarning(`Failed to subscribe: ${message.attributes?.error || 'Unknown error'}`);
+            return;
+          }
+          
+          // Only log event messages, not connection messages
+          if (message.type && message.type.endsWith('-event-v2')) {
+            logEvent(`Received ${message.type} for mower ID: ${message.id || 'unknown'}`);
+            
+            if (VERBOSE_LOGGING) {
+              debug('Message content:', JSON.stringify(message, null, 2));
+            }
+          } else {
+            debug(`Received message type: ${message.type || 'unknown'}`);
+          }
+        } catch (parseError) {
+          // Not JSON, handle as plain text message
+          debug('Received non-JSON message:', messageStr);
+          
+          // Forward raw message to clients
+          broadcastToClients({
+            type: 'raw',
+            data: messageStr,
+            timestamp: new Date().toISOString()
+          });
+          
+          return;
+        }
+        
+        // Forward message to connected clients
+        broadcastToClients(message);
+        
+        // Process event messages for mowers
+        if (message.type && message.type.endsWith('-event-v2') && message.id) {
+          // Extract mower ID and event type
+          const mowerId = message.id;
+          const eventType = message.type.replace('-event-v2', '');
+          
+          // Skip throttled events
+          if (!shouldThrottle(mowerId, eventType)) {
+            // Save to Firebase using improved function
+            await saveEventToFirestore(mowerId, eventType, message.attributes, message.type);
+          } else {
+            logFirebaseThrottle(`Throttled ${eventType} update for mower ${mowerId}`);
+          }
+        }
+      } catch (processError) {
+        // Don't treat message processing errors as critical - just log and continue
+        logError('Error processing WebSocket message:', processError.message);
+        if (VERBOSE_LOGGING) {
+          console.error(processError);
+        }
+      }
+    });
+    
+    husqvarnaWs.on('error', (wsError) => {
+      logError('Husqvarna WebSocket error:', wsError.message || wsError);
+      const errorDetails = getNetworkErrorType(wsError);
+      logError(`Error type: ${errorDetails.type} - ${errorDetails.message}`);
+      
+      // Broadcast more detailed error to clients
+      broadcastToClients({
+        type: 'error',
+        errorType: errorDetails.type,
+        message: errorDetails.message,
+        timestamp: new Date().toISOString()
+      });
+      
+      saveErrorToFirebase('husqvarna_websocket_error', {
+        ...wsError,
+        errorType: errorDetails.type,
+        errorDetails: errorDetails.message
+      });
+    });
+    
+    husqvarnaWs.on('close', (code, reason) => {
+      log(`Husqvarna WebSocket closed with code ${code} and reason: ${reason || 'No reason provided'}`);
+      
+      // Clear ping interval
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
+      
+      // Clear reconnection timeout
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+      
+      // Update connection status
+      updateConnectionStatus(false);
+      
+      // Broadcast connection status to clients
+      broadcastToClients({
+        type: 'status',
+        connected: false,
+        timestamp: new Date().toISOString()
+      });
+      
+      // Handle reconnection based on the close code
+      if (code === 1000) {
+        // Normal closure, schedule reconnection after a short delay
+        log('Normal closure, will reconnect in 5 seconds');
+        setTimeout(() => {
+          isReconnecting = false;
+          connectToHusqvarna();
+        }, 5000);
+      } else if (code === 1006) {
+        // Abnormal closure, likely network issue
+        logWarning('Abnormal closure (code 1006), likely network issue');
+        setTimeout(() => {
+          isReconnecting = false;
+          connectToHusqvarna();
+        }, 10000);
+      } else if (code === 1008 || code === 1011) {
+        // Policy violation or server error, wait longer
+        logWarning(`Server policy violation or error: ${code} ${reason}`);
+        setTimeout(() => {
+          isReconnecting = false;
+          connectToHusqvarna();
+        }, 30000);
+      } else if (code === 1012) {
+        // Server is restarting, reconnect after 10 seconds
+        log('Server restarting, will reconnect in 10 seconds');
+        setTimeout(() => {
+          isReconnecting = false;
+          connectToHusqvarna();
+        }, 10000);
+      } else {
+        // Other errors, use exponential backoff
+        const delay = Math.min(10000 * Math.pow(1.5, Math.min(consecutiveFailures || 0, 5)), 60000);
+        logWarning(`Will attempt reconnection in ${Math.floor(delay/1000)} seconds`);
+        
+        setTimeout(() => {
+          isReconnecting = false;
+          connectToHusqvarna();
+        }, delay);
+      }
+    });
+  } catch (connectionError) {
+    logError('Failed to connect to Husqvarna WebSocket:', connectionError.message);
+    saveErrorToFirebase('husqvarna_websocket_connection_error', connectionError);
+    
+    // Increment consecutive failures counter
+    consecutiveFailures++;
+    
+    // Activate circuit breaker if too many consecutive failures
+    if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+      circuitBreakerUntil = Date.now() + CIRCUIT_BREAKER_RESET_TIME;
+      logWarning(`Circuit breaker activated after ${consecutiveFailures} consecutive failures. Pausing reconnection for ${CIRCUIT_BREAKER_RESET_TIME/60000} minutes`);
+      consecutiveFailures = 0;
+      
+      setTimeout(() => {
+        log('Circuit breaker reset, resuming connection attempts');
+        isReconnecting = false;
+        connectToHusqvarna();
+      }, CIRCUIT_BREAKER_RESET_TIME);
+    } else {
+      // Reset reconnecting flag and try again after a delay, with exponential backoff
+      const delay = Math.min(10000 * Math.pow(1.5, consecutiveFailures), 30000);
+      setTimeout(() => {
+        isReconnecting = false;
+        connectToHusqvarna();
+      }, delay);
+    }
+  }
+}
+
+// Process event data and save to Firestore
+async function saveEventToFirestore(mowerId, eventType, attributes, messageType) {
+  if (!admin) {
+    debug('Firebase not initialized, skipping save');
+    return;
+  }
+  
+  try {
+    // Log operation starting
+    logFirebaseQueue(`Queueing ${eventType} event for mower ${mowerId} to Firestore`);
+    firebaseStats.queuedOperations++;
+    firebaseStats.totalOperations++;
+    
+    const db = admin.firestore();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const mowerRef = db.collection('mowers').doc(mowerId);
+    
+    // Basic update for all event types - update the mower document
+    const basicUpdate = {
+      lastEvent: {
+        type: messageType,
+        timestamp: now
+      },
+      lastUpdated: now,
+      [`lastUpdated_${eventType}`]: now
+    };
+    
+    // Add event-specific data if available
+    if (attributes && attributes[eventType]) {
+      basicUpdate[eventType] = attributes[eventType];
     }
     
-    const userId = meResponse.data.data.id;
-    console.log(`[${connectionId}] User ID retrieved: ${userId}`);
+    // Create a batch for multiple operations
+    const batch = db.batch();
     
-    // Now fetch mowers associated with this user
+    // Update main mower document
+    batch.set(mowerRef, basicUpdate, { merge: true });
+    
+    // Handle specific event types with custom processing
+    switch (eventType) {
+      case 'position':
+        if (attributes?.position) {
+          // Add to position history subcollection with timestamp
+          const positionDoc = mowerRef.collection('positions').doc();
+          batch.set(positionDoc, {
+            ...attributes.position,
+            timestamp: now
+          });
+          
+          // Update latest position in main document for quick access
+          batch.set(mowerRef, {
+            latestPosition: {
+              ...attributes.position,
+              timestamp: now
+            }
+          }, { merge: true });
+          
+          logFirebaseQueue(`Adding position data to history for mower ${mowerId}`);
+        }
+        break;
+        
+      case 'battery':
+        if (attributes?.battery) {
+          // Add to battery history subcollection
+          const batteryDoc = mowerRef.collection('batteryHistory').doc();
+          batch.set(batteryDoc, {
+            batteryPercent: attributes.battery.batteryPercent,
+            timestamp: now
+          });
+          
+          // Also store in a daily log for charting
+          const today = new Date().toISOString().split('T')[0];
+          const dailyBatteryRef = mowerRef.collection('dailyBattery').doc(today);
+          
+          // Use arrayUnion to add to the day's readings - with JavaScript Date instead of serverTimestamp
+          batch.set(dailyBatteryRef, {
+            date: today,
+            readings: admin.firestore.FieldValue.arrayUnion({
+              batteryPercent: attributes.battery.batteryPercent,
+              timestamp: new Date() // Use JavaScript Date instead of serverTimestamp for array elements
+            })
+          }, { merge: true });
+          
+          logFirebaseQueue(`Adding battery data (${attributes.battery.batteryPercent}%) to history for mower ${mowerId}`);
+        }
+        break;
+        
+      case 'mower':
+        if (attributes?.mower) {
+          // Add to status history subcollection
+          const statusDoc = mowerRef.collection('statusHistory').doc();
+          batch.set(statusDoc, {
+            ...attributes.mower,
+            timestamp: now
+          });
+          
+          // Track state changes separately
+          // This helps with analyzing how much time is spent in each state
+          const activityState = `${attributes.mower.activity || 'UNKNOWN'}_${attributes.mower.state || 'UNKNOWN'}`;
+          batch.set(mowerRef, {
+            activityStates: admin.firestore.FieldValue.arrayUnion({
+              state: activityState,
+              mode: attributes.mower.mode || 'UNKNOWN',
+              timestamp: now
+            })
+          }, { merge: true });
+        }
+        break;
+        
+      case 'error':
+        if (attributes?.error) {
+          // All errors go to a dedicated errors collection
+          const errorDoc = mowerRef.collection('errors').doc();
+          
+          // Include full error details
+          batch.set(errorDoc, {
+            ...attributes.error,
+            timestamp: now
+          });
+          
+          // Also update latest error in main document
+          batch.set(mowerRef, {
+            latestError: {
+              ...attributes.error,
+              timestamp: now
+            }
+          }, { merge: true });
+        }
+        break;
+        
+      case 'statistics':
+        if (attributes?.statistics) {
+          // Store complete statistics snapshot
+          const statsDoc = mowerRef.collection('statistics').doc();
+          batch.set(statsDoc, {
+            ...attributes.statistics,
+            timestamp: now
+          });
+        }
+        break;
+        
+      // Add other event types as needed
+      
+      default:
+        // For all other event types, just store in type-specific subcollection
+        if (attributes && attributes[eventType]) {
+          const historyDoc = mowerRef.collection(`${eventType}History`).doc();
+          batch.set(historyDoc, {
+            ...attributes[eventType],
+            timestamp: now
+          });
+          logFirebaseQueue(`Adding ${eventType} data to history for mower ${mowerId}`);
+        }
+        break;
+    }
+    
+    // Commit all the batched writes
+    logFirebaseQueue(`Committing batch with ${eventType} data for mower ${mowerId}...`);
+    const startTime = Date.now();
+    await batch.commit();
+    const endTime = Date.now();
+    logFirebaseSave(`Saved ${messageType} event to Firestore for mower ${mowerId} in ${endTime - startTime}ms`);
+    firebaseStats.successfulOperations++;
+    
+    // Log statistics periodically (every 10 operations)
+    if (firebaseStats.totalOperations % 10 === 0) {
+      logFirebase(`Stats: ${firebaseStats.successfulOperations} saved, ${firebaseStats.throttledOperations} throttled, ${firebaseStats.failedOperations} failed out of ${firebaseStats.totalOperations} total`);
+    }
+    
+    // Update system status to indicate active data flow
+    await db.collection('system').doc('websocket').set({
+      lastEventReceived: now,
+      lastEventType: messageType,
+      lastMowerId: mowerId
+    }, { merge: true });
+    
+    return true;
+  } catch (error) {
+    logError(`Error saving ${eventType} event to Firestore:`, error.message);
+    firebaseStats.failedOperations++;
+    
+    if (VERBOSE_LOGGING) {
+      console.error(error);
+    }
+    
+    // Log error to dedicated collection
+    try {
+      if (admin) {
+        const db = admin.firestore();
+        await db.collection('errors').add({
+          type: 'firebase_write_error',
+          mowerId: mowerId,
+          eventType: eventType,
+          message: error.message,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+        logFirebase(`Logged write error for ${eventType} to errors collection`);
+      }
+    } catch (logError) {
+      console.error('Failed to log error to Firestore:', logError);
+    }
+    
+    return false;
+  }
+}
+
+// Update WebSocket connection status in Firestore
+async function updateConnectionStatus(isConnected) {
+  if (!admin) return;
+  
+  try {
+    const db = admin.firestore();
+    await db.collection('system').doc('websocket').set({
+      connected: isConnected,
+      lastUpdate: admin.firestore.FieldValue.serverTimestamp(),
+      proxyServer: true,
+      proxyVersion: '1.0.0'
+    }, { merge: true });
+  } catch (error) {
+    logError('Error updating connection status:', error.message);
+  }
+}
+
+// Log error to Firestore
+async function saveErrorToFirebase(type, err) {
+  if (!admin) return;
+  
+  try {
+    const db = admin.firestore();
+    await db.collection('logs').add({
+      type,
+      error: err instanceof Error ? err.message : String(err),
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      details: JSON.stringify(err, Object.getOwnPropertyNames(err))
+    });
+  } catch (logError) {
+    logError('Error logging to Firebase:', logError.message);
+  }
+}
+
+// Helper function to get error description based on error code
+function getErrorDescription(errorCode) {
+  const errorCodes = {
+    0: 'No error',
+    1: 'Unexpected error',
+    2: 'Outside working area',
+    3: 'No loop signal',
+    4: 'Wrong loop signal',
+    5: 'Charging station blocked',
+    // Add more error codes as needed
+  };
+  
+  return errorCodes[errorCode] || `Unknown error code: ${errorCode}`;
+}
+
+// Broadcast message to all connected proxy clients
+function broadcastToClients(message) {
+  const messageString = JSON.stringify(message);
+  clients.forEach(client => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(messageString);
+    }
+  });
+}
+
+// Handle client connections to our proxy
+wss.on('connection', (ws, req) => {
+  const clientIp = req.socket.remoteAddress;
+  log(`Client connected to proxy from: ${clientIp}`);
+  
+  // Extract token from URL query parameters if provided
+  const url = new URL(req.url, 'http://localhost');
+  const tokenFromQuery = url.searchParams.get('token');
+  
+  if (tokenFromQuery) {
+    log('Received token from client, will use for WebSocket connection');
+    userProvidedToken = tokenFromQuery;
+    
+    // If we have a token and an active connection, reconnect to use the new token
+    if (husqvarnaWs && husqvarnaWs.readyState === WebSocket.OPEN) {
+      log('Reconnecting with the provided token...');
+      isReconnecting = false;
+      connectToHusqvarna();
+    }
+  }
+  
+  // Add client to set
+  clients.add(ws);
+  
+  // Send initial connection status
+  ws.send(JSON.stringify({
+    type: 'status',
+    connected: husqvarnaWs && husqvarnaWs.readyState === WebSocket.OPEN,
+    timestamp: new Date().toISOString(),
+    clients: clients.size
+  }));
+  
+  // Handle messages from client
+  ws.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      log('Received message from client:', data.type || 'unknown type');
+      
+      // Handle different message types
+      if (data.type === 'command' && data.action && data.mowerId) {
+        // Forward command to Husqvarna
+        if (husqvarnaWs && husqvarnaWs.readyState === WebSocket.OPEN) {
+          husqvarnaWs.send(JSON.stringify({
+            type: 'command',
+            mowerId: data.mowerId,
+            action: data.action,
+            parameters: data.parameters || {}
+          }));
+          
+          log(`Sent command ${data.action} to mower ${data.mowerId}`);
+        } else {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Not connected to Husqvarna WebSocket',
+            timestamp: new Date().toISOString()
+          }));
+        }
+      } else if (data.type === 'reconnect') {
+        // Manual reconnection request
+        log('Manual reconnection requested');
+        isReconnecting = false;
+        connectToHusqvarna();
+        
+        ws.send(JSON.stringify({
+          type: 'status',
+          message: 'Reconnection initiated',
+          timestamp: new Date().toISOString()
+        }));
+      }
+    } catch (error) {
+      logError('Error processing client message:', error.message);
+      ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Failed to process message',
+        details: error.message,
+        timestamp: new Date().toISOString()
+      }));
+    }
+  });
+  
+  // Handle client disconnection
+  ws.on('close', () => {
+    log('Client disconnected from proxy');
+    clients.delete(ws);
+  });
+  
+  // Handle errors
+  ws.on('error', (clientError) => {
+    logError('Client WebSocket error:', clientError.message || clientError);
+    clients.delete(ws);
+  });
+});
+
+// Start server
+server.listen(PORT, () => {
+  log(`WebSocket proxy server running on port ${PORT}`);
+  log('Environment loaded:', {
+    hasApiKey: !!HUSQVARNA_API_KEY,
+    hasClientId: !!HUSQVARNA_CLIENT_ID,
+    hasClientSecret: !!HUSQVARNA_CLIENT_SECRET,
+    port: PORT,
+    firebaseConnected: !!admin
+  });
+  
+  // Connect to Husqvarna immediately
+  connectToHusqvarna();
+});
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  log('Shutting down server...');
+  
+  // Close Husqvarna WebSocket
+  if (husqvarnaWs) {
+    husqvarnaWs.terminate();
+  }
+  
+  // Clear intervals and timeouts
+  if (pingInterval) clearInterval(pingInterval);
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
+  
+  // Close server
+  server.close(() => {
+    log('Server closed');
+    process.exit(0);
+  });
+});
+
+// Add error handler for uncaught exceptions
+process.on('uncaughtException', (err) => {
+  logError('Uncaught exception:', err);
+  // Don't exit the process, just log the error
+});
+
+// Add error handler for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logError('Unhandled promise rejection:', reason);
+  // Don't exit the process, just log the error
+});
+
+// Helper function to determine the type of network error
+function getNetworkErrorType(error) {
+  const message = error.message || '';
+  
+  if (message.includes('ENOTFOUND')) {
+    return {
+      type: 'dns',
+      message: 'DNS resolution failed. Check your network connection and DNS settings.'
+    };
+  } else if (message.includes('ECONNREFUSED')) {
+    return {
+      type: 'connection',
+      message: 'Connection refused. The server may be down or not accepting connections.'
+    };
+  } else if (message.includes('ETIMEDOUT') || message.includes('timeout')) {
+    return {
+      type: 'timeout',
+      message: 'Connection timed out. Check your network connection or firewall settings.'
+    };
+  } else if (message.includes('certificate') || message.includes('SSL')) {
+    return {
+      type: 'ssl',
+      message: 'SSL/TLS error. There might be an issue with the server certificate or your security settings.'
+    };
+  }
+  
+  return {
+    type: 'unknown',
+    message: `Network error: ${message}`
+  };
+}
+
+/**
+ * Fetch user's mowers from Husqvarna API
+ * @param {string} token - Access token
+ * @returns {Promise<{userId: string, mowerIds: string[]}>}
+ */
+async function fetchUserMowers(token) {
+  try {
+    log('Fetching mowers directly...');
+    
+    // Skip the /users/me endpoint which returns 404
+    // Instead, go directly to fetch mowers
     const mowersResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers`, {
       headers: {
         'Authorization': `Bearer ${token}`,
-        'X-Api-Key': apiKey,
-        'Authorization-Provider': 'husqvarna'
+        'Authorization-Provider': 'husqvarna',
+        'X-Api-Key': HUSQVARNA_API_KEY
       }
     });
     
@@ -98,1675 +1143,30 @@ async function fetchUserMowers(connectionId, token, apiKey) {
     const mowers = mowersResponse.data.data;
     const mowerIds = mowers.map(mower => mower.id);
     
-    console.log(`[${connectionId}] Found ${mowerIds.length} mowers for user ${userId}: ${mowerIds.join(', ')}`);
+    // Get the user ID from the token instead (JWT contains user info)
+    const tokenParts = token.split('.');
+    if (tokenParts.length !== 3) {
+      throw new Error('Invalid token format');
+    }
     
-    // Return both the user ID and mower IDs
+    // Decode the JWT payload
+    const payload = JSON.parse(Buffer.from(tokenParts[1], 'base64').toString());
+    const userId = payload.sub || 'unknown';
+    
+    log(`Using user ID from token: ${userId}`);
+    log(`Found ${mowerIds.length} mowers: ${mowerIds.join(', ')}`);
+    
     return {
       userId,
       mowerIds,
-      mowers: mowers // Return full mower objects for additional information
+      mowers
     };
   } catch (error) {
-    console.error(`[${connectionId}] Error fetching user mowers:`, error.response?.data || error.message);
+    logError('Error fetching user mowers:', error.message);
+    if (error.response) {
+      logError('Response status:', error.response.status);
+      logError('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     throw error;
   }
-}
-
-// Firebase integration
-let db = null;
-const MOWERS_COLLECTION = 'mowers';
-const UPDATE_TIMESTAMPS = {}; // Track last update timestamp per mower/data type
-const UPDATE_QUEUE = {}; // Queue updates to be processed
-
-// Initialize Firebase
-function initializeFirebase() {
-  try {
-    const firebaseConfig = {
-      apiKey: process.env.FIREBASE_API_KEY,
-      authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-      messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-      appId: process.env.FIREBASE_APP_ID,
-      measurementId: process.env.FIREBASE_MEASUREMENT_ID
-    };
-    
-    if (!firebaseConfig.apiKey) {
-      console.warn('Firebase configuration missing, data will not be stored persistently');
-      console.warn('Make sure FIREBASE_API_KEY is set in .env.local');
-      return null;
-    }
-    
-    // Initialize Firebase app
-    const app = initializeApp(firebaseConfig);
-    
-    // Initialize Firestore
-    db = getFirestore(app);
-    console.log('Firebase initialized successfully');
-    return db;
-  } catch (error) {
-    console.error('Error initializing Firebase:', error);
-    return null;
-  }
-}
-
-// Process the update queue for Firebase at a controlled rate
-function processUpdateQueue() {
-  if (!db) return;
-  
-  const now = Date.now();
-  const queueSize = Object.keys(UPDATE_QUEUE).length;
-  
-  if (queueSize > 0) {
-    console.log(`⏳ PROCESSING UPDATE QUEUE: ${queueSize} mowers in queue`);
-  }
-  
-  // Process all queued updates
-  Object.entries(UPDATE_QUEUE).forEach(([mowerId, dataTypes]) => {
-    Object.entries(dataTypes).forEach(([dataType, data]) => {
-      const lastUpdate = UPDATE_TIMESTAMPS[mowerId]?.[dataType] || 0;
-      
-      // Get the specific throttle time for this data type, or use default
-      const throttleTime = FIREBASE_UPDATE_THROTTLES[dataType] || FIREBASE_UPDATE_THROTTLES.default;
-      
-      // Only update if it's been more than the throttle period for this data type
-      if (now - lastUpdate > throttleTime) {
-        console.log(`⏰ THROTTLE CHECK PASSED: Mower ${mowerId}, Type: ${dataType}, Last update: ${now - lastUpdate}ms ago, Throttle: ${throttleTime}ms`);
-        updateFirebaseData(mowerId, dataType, data);
-        
-        // Update the timestamp
-        if (!UPDATE_TIMESTAMPS[mowerId]) {
-          UPDATE_TIMESTAMPS[mowerId] = {};
-        }
-        UPDATE_TIMESTAMPS[mowerId][dataType] = now;
-        
-        // Remove from queue
-        delete UPDATE_QUEUE[mowerId][dataType];
-        console.log(`🗑️ REMOVED FROM QUEUE: Mower ${mowerId}, Type: ${dataType}`);
-      } else {
-        console.log(`⏱️ THROTTLE ACTIVE: Mower ${mowerId}, Type: ${dataType}, Last update: ${now - lastUpdate}ms ago, need to wait ${throttleTime - (now - lastUpdate)}ms more`);
-      }
-    });
-    
-    // Clean up empty mower entries
-    if (Object.keys(UPDATE_QUEUE[mowerId]).length === 0) {
-      delete UPDATE_QUEUE[mowerId];
-    }
-  });
-}
-
-// Process queue at regular intervals
-setInterval(processUpdateQueue, 1000); // Check every second
-
-// Update Firebase data
-async function updateFirebaseData(mowerId, dataType, data) {
-  if (!db) {
-    console.log(`⚠️ FIREBASE UPDATE SKIPPED: Firebase not initialized`);
-    return;
-  }
-  
-  try {
-    console.log(`🔥 FIREBASE UPDATE START: Mower ${mowerId}, Type: ${dataType}`);
-    const mowerRef = doc(db, MOWERS_COLLECTION, mowerId);
-    
-    // Create update for the specific data type
-    const update = {};
-    update[dataType] = data;
-    update['lastUpdated'] = serverTimestamp();
-    
-    // Add update timestamp
-    update[`${dataType}_updated`] = serverTimestamp();
-    
-    // Update Firestore
-    await setDoc(mowerRef, update, { merge: true });
-    
-    // Also store in history collection if needed
-    if (dataType === 'position' || dataType === 'battery' || dataType === 'mower') {
-      const historyData = {
-        timestamp: serverTimestamp(),
-        type: dataType,
-        data
-      };
-      
-      // Add to history collection
-      await setDoc(
-        doc(collection(db, MOWERS_COLLECTION, mowerId, 'history'), randomUUID()),
-        historyData
-      );
-      console.log(`📜 HISTORY UPDATED: Mower ${mowerId}, Type: ${dataType}`);
-    }
-    
-    console.log(`✅ FIREBASE UPDATE COMPLETE: Mower ${mowerId}, Type: ${dataType}, Data: ${JSON.stringify(data)}`);
-  } catch (error) {
-    console.error(`❌ FIREBASE UPDATE ERROR: Mower ${mowerId}, Type: ${dataType}`, error);
-  }
-}
-
-// Queue an update for Firebase
-function queueFirebaseUpdate(mowerId, dataType, data) {
-  console.log(`📊 QUEUE UPDATE: Mower ${mowerId}, Type: ${dataType}, Data: ${JSON.stringify(data)}`);
-  
-  if (!UPDATE_QUEUE[mowerId]) {
-    UPDATE_QUEUE[mowerId] = {};
-  }
-  
-  // Store the data to be processed later
-  UPDATE_QUEUE[mowerId][dataType] = data;
-}
-
-// Force immediate update to Firebase, bypassing throttling
-// This should be used for user-initiated actions only
-async function forceImmediateUpdate(mowerId, dataType, data) {
-  console.log(`⚡ FORCE IMMEDIATE UPDATE: Mower ${mowerId}, Type: ${dataType}, Data: ${JSON.stringify(data)}`);
-  
-  // Update Firebase directly without throttling
-  await updateFirebaseData(mowerId, dataType, data);
-  
-  // Update the timestamp to prevent duplicate updates
-  if (!UPDATE_TIMESTAMPS[mowerId]) {
-    UPDATE_TIMESTAMPS[mowerId] = {};
-  }
-  UPDATE_TIMESTAMPS[mowerId][dataType] = Date.now();
-  
-  // Remove from queue if it exists
-  if (UPDATE_QUEUE[mowerId]?.[dataType]) {
-    delete UPDATE_QUEUE[mowerId][dataType];
-    console.log(`🗑️ REMOVED FROM QUEUE: Mower ${mowerId}, Type: ${dataType} (forced update)`);
-  }
-  
-  // Broadcast area completion updates to all connected clients
-  if (dataType === 'workAreaProgress' || dataType === 'areaComplete') {
-    broadcastAreaCompletionUpdate(mowerId, data);
-  }
-}
-
-/**
- * Broadcast area completion updates to all connected clients
- * This ensures all UI components get real-time updates
- */
-function broadcastAreaCompletionUpdate(mowerId, data) {
-  // Skip if no area completion data
-  if (!data) return;
-  
-  console.log(`📣 BROADCASTING AREA COMPLETION UPDATE: Mower ${mowerId}`);
-  
-  try {
-    // Prepare message with all necessary info
-    const message = {
-      type: 'area-completion-update',
-      mowerId: mowerId,
-      areaComplete: data.areaComplete || data, // Handle both workAreaProgress object and direct string
-      timestamp: Date.now(),
-      areas: data.areas || []
-    };
-    
-    const messageStr = JSON.stringify(message);
-    
-    // Send to all connected clients
-    for (const [_, connection] of connections.entries()) {
-      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-        connection.clientWs.send(messageStr);
-        console.log(`📤 Sent area completion update to client for mower ${mowerId}`);
-      }
-    }
-  } catch (error) {
-    console.error(`❌ Error broadcasting area completion update: ${error}`);
-  }
-}
-
-// Create HTTP server
-const server = http.createServer((req, res) => {
-  if (req.url === '/health') {
-    // Health check endpoint
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ 
-      status: 'ok', 
-      connections: connections.size,
-      uptime: process.uptime(),
-      persistentConnection: null // No more persistent connection with user-based auth
-    }));
-  } else if (req.url === '/dashboard/refresh' && req.method === 'POST') {
-    // Dashboard refresh endpoint - triggers a comprehensive data fetch
-    handleDashboardRefresh(req, res);
-  } else {
-    res.writeHead(404);
-    res.end('Not found');
-  }
-});
-
-// Create WebSocket server
-const wss = new WebSocketServer({ server });
-
-// Heartbeat interval (ms)
-const HEARTBEAT_INTERVAL = 300000; // 5 minutes (increased from 30 seconds)
-
-// Handle new WebSocket connections from browsers
-wss.on('connection', (clientWs, req) => {
-  try {
-    // Parse the URL to get the token from query parameters
-    const parsedUrl = parse(req.url, true);
-    const token = parsedUrl.query.token;
-    const apiKey = parsedUrl.query.apiKey || process.env.HUSQVARNA_APP_KEY;
-    
-    if (!token) {
-      console.error('No token provided in WebSocket connection');
-      clientWs.close(1008, 'Authentication required');
-      return;
-    }
-
-    console.log(`Received connection with token: ${token.substring(0, 20)}...`);
-    
-    // Generate a unique connection ID
-    const connectionId = randomUUID();
-    console.log(`[${connectionId}] New WebSocket connection established from browser`);
-    
-    // Add isAlive property for heartbeat
-    clientWs.isAlive = true;
-    
-    // Handle pong messages to confirm client is alive
-    clientWs.on('pong', () => {
-      clientWs.isAlive = true;
-      console.log(`[${connectionId}] Client heartbeat received (pong)`);
-    });
-    
-    // Handle ping messages (custom ping from client)
-    clientWs.on('ping', () => {
-      if (clientWs.readyState === WebSocket.OPEN) {
-        clientWs.pong();
-        console.log(`[${connectionId}] Responded to client ping with pong`);
-      }
-    });
-    
-    // Store the connection details
-    connections.set(connectionId, {
-      clientWs,
-      husqvarnaWs: null,
-      token,
-      apiKey,
-      connectedAt: new Date(),
-      messageCount: 0,
-      lastMessageTime: null,
-      reconnectAttempts: 0,
-      status: 'connecting',
-      lastActivity: Date.now(),
-      isAlive: true
-    });
-    
-    // Create a dedicated connection for this client using the client's token
-    connectToHusqvarnaWS(connectionId);
-  } catch (error) {
-    console.error('Error handling WebSocket connection:', error);
-    if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.close(1011, 'Internal server error');
-    }
-  }
-});
-
-/**
- * Connect to Husqvarna's WebSocket API for a specific connection
- */
-async function connectToHusqvarnaWS(connectionId) {
-  const connection = connections.get(connectionId);
-  
-  if (!connection) {
-    console.error(`[${connectionId}] Connection not found`);
-    return;
-  }
-  
-  try {
-    console.log(`[${connectionId}] Connecting to Husqvarna WebSocket API using user token...`);
-    
-    // Update connection status
-    connection.status = 'connecting';
-    
-    // Set up connection timeout
-    const timeoutId = setTimeout(() => {
-      if (connection.status === 'connecting') {
-        console.error(`[${connectionId}] Connection to Husqvarna WebSocket API timed out`);
-        if (connection.husqvarnaWs) {
-          connection.husqvarnaWs.terminate();
-          connection.husqvarnaWs = null;
-        }
-        
-        // Try to reconnect if client is still connected
-        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-          connection.reconnectAttempts++;
-          if (connection.reconnectAttempts < 5) {
-            const delay = Math.min(30000, RECONNECT_INTERVAL * Math.pow(1.5, connection.reconnectAttempts));
-            console.log(`[${connectionId}] Will retry in ${delay}ms (attempt ${connection.reconnectAttempts})`);
-            setTimeout(() => connectToHusqvarnaWS(connectionId), delay);
-          } else {
-            console.error(`[${connectionId}] Maximum reconnection attempts reached`);
-            
-            if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-              connection.clientWs.close(1011, 'Failed to connect to Husqvarna API after multiple attempts');
-            }
-            
-            connections.delete(connectionId);
-          }
-        }
-      }
-    }, CONNECTION_TIMEOUT);
-    
-    // Create the WebSocket connection to Husqvarna with token in header (as per their docs)
-    // Use the token provided by the client - this is the key change!
-    const husqvarnaWs = new WebSocket(HUSQVARNA_WS_URL, {
-      headers: {
-        'Authorization': `Bearer ${connection.token}`, // User's token from the client
-        'X-Api-Key': connection.apiKey,
-        'Authorization-Provider': 'husqvarna',
-        'Accept': 'application/vnd.api+json'
-      },
-      // Set to false to prevent compression issues
-      perMessageDeflate: false
-    });
-    
-    // Add heartbeat properties to Husqvarna connection
-    husqvarnaWs.isAlive = true;
-    
-    // Store the WebSocket connection
-    connection.husqvarnaWs = husqvarnaWs;
-    
-    // Handle messages from Husqvarna
-    husqvarnaWs.on('message', (message) => {
-      try {
-        // Log every message received from Husqvarna
-        console.log(`[${connectionId}] ⬇️ MESSAGE FROM HUSQVARNA: ${message.length} bytes`);
-        
-        // Process message for Firebase updates
-        try {
-          const messageStr = message.toString();
-          console.log(`[${connectionId}] 📋 RECEIVED MESSAGE CONTENT: ${messageStr.substring(0, 200)}${messageStr.length > 200 ? '...' : ''}`);
-          
-          const data = JSON.parse(messageStr);
-          
-          // Only process actual mower events
-          if (data.id && data.type && data.attributes) {
-            const mowerId = data.id;
-            console.log(`[${connectionId}] 🚜 MOWER EVENT: ${data.type} for mower ${mowerId}`);
-            
-            // Process different event types
-            switch (data.type) {
-              case 'battery-event-v2':
-                // Update battery data
-                console.log(`[${connectionId}] 🔋 BATTERY EVENT: ${JSON.stringify(data.attributes.battery || {})}`);
-                queueFirebaseUpdate(mowerId, 'battery', {
-                  batteryPercent: data.attributes.battery?.batteryPercent || 0,
-                  timestamp: new Date()
-                });
-                break;
-                
-              case 'mower-event-v2':
-                // Update mower status data
-                console.log(`[${connectionId}] 🛠️ MOWER STATUS EVENT: activity=${data.attributes.mower?.activity || 'UNKNOWN'}, state=${data.attributes.mower?.state || 'UNKNOWN'}, mode=${data.attributes.mower?.mode || 'UNKNOWN'}`);
-                queueFirebaseUpdate(mowerId, 'mower', {
-                  activity: data.attributes.mower?.activity || 'UNKNOWN',
-                  state: data.attributes.mower?.state || 'UNKNOWN',
-                  mode: data.attributes.mower?.mode || 'UNKNOWN',
-                  timestamp: new Date()
-                });
-                break;
-                
-              case 'position-event-v2':
-                // Update position data
-                if (data.attributes.position) {
-                  console.log(`[${connectionId}] 📍 POSITION EVENT: lat=${data.attributes.position.latitude}, long=${data.attributes.position.longitude}`);
-                  queueFirebaseUpdate(mowerId, 'position', {
-                    latitude: data.attributes.position.latitude,
-                    longitude: data.attributes.position.longitude,
-                    timestamp: new Date()
-                  });
-                }
-                break;
-                
-              case 'calendar-event-v2':
-                // Update calendar data
-                if (data.attributes.calendar) {
-                  console.log(`[${connectionId}] 📅 CALENDAR EVENT: ${JSON.stringify(data.attributes.calendar).substring(0, 200)}...`);
-                  queueFirebaseUpdate(mowerId, 'calendar', {
-                    tasks: data.attributes.calendar.tasks || [],
-                    timestamp: new Date()
-                  });
-                }
-                break;
-              
-              case 'cuttingHeight-event-v2':
-                // Update cutting height data
-                if (data.attributes.cuttingHeight !== undefined) {
-                  console.log(`[${connectionId}] ✂️ CUTTING HEIGHT EVENT: value=${data.attributes.cuttingHeight}`);
-                  queueFirebaseUpdate(mowerId, 'cuttingHeight', {
-                    value: data.attributes.cuttingHeight,
-                    timestamp: new Date()
-                  });
-                }
-                break;
-              
-              case 'headlights-event-v2':
-                // Update headlights data
-                if (data.attributes.headlight) {
-                  console.log(`[${connectionId}] 💡 HEADLIGHTS EVENT: mode=${data.attributes.headlight.mode || 'UNKNOWN'}`);
-                  queueFirebaseUpdate(mowerId, 'headlights', {
-                    mode: data.attributes.headlight.mode || 'UNKNOWN',
-                    timestamp: new Date()
-                  });
-                }
-                break;
-              
-              case 'message-event-v2':
-                // Update message/alert data
-                if (data.attributes.message) {
-                  const message = data.attributes.message;
-                  console.log(`[${connectionId}] 📢 MESSAGE EVENT: level=${message.level || 'INFO'}, headline=${message.headline || ''}`);
-                  queueFirebaseUpdate(mowerId, 'messages', {
-                    id: message.id || `msg-${Date.now()}`,
-                    level: message.level || 'INFO',
-                    headline: message.headline || '',
-                    text: message.text || '',
-                    datetime: message.datetime || new Date().toISOString(),
-                    resolved: message.resolved || false,
-                    timestamp: new Date()
-                  });
-                  
-                  // Also store in history collection for messages
-                  const historyData = {
-                    timestamp: serverTimestamp(),
-                    type: 'message',
-                    data: {
-                      id: message.id || `msg-${Date.now()}`,
-                      level: message.level || 'INFO',
-                      headline: message.headline || '',
-                      text: message.text || '',
-                      datetime: message.datetime || new Date().toISOString(),
-                      resolved: message.resolved || false
-                    }
-                  };
-                  
-                  try {
-                    // Add to history collection if Firebase is initialized
-                    if (db) {
-                      setDoc(
-                        doc(collection(db, MOWERS_COLLECTION, mowerId, 'history'), randomUUID()),
-                        historyData
-                      );
-                    }
-                  } catch (error) {
-                    console.error(`Error storing message history for mower ${mowerId}:`, error);
-                  }
-                }
-                break;
-              
-              case 'planner-event-v2':
-                // Update planner data
-                if (data.attributes.planner) {
-                  const planner = data.attributes.planner;
-                  console.log(`[${connectionId}] 📝 PLANNER EVENT: nextStart=${planner.nextStartTimestamp || 'NONE'}, override=${JSON.stringify(planner.override || { action: 'NO_SOURCE' })}`);
-                  queueFirebaseUpdate(mowerId, 'planner', {
-                    nextStartTimestamp: planner.nextStartTimestamp || null,
-                    override: planner.override || { action: 'NO_SOURCE' },
-                    restrictedReason: planner.restrictedReason || 'NONE',
-                    timestamp: new Date()
-                  });
-                }
-                break;
-                
-                // NEW EVENT HANDLERS ADDED BELOW
-                
-                case 'statistics-event-v2':
-                  // Handle statistics events
-                  try {
-                    if (data.attributes.statistics) {
-                      console.log(`[${connectionId}] 📊 STATISTICS EVENT: ${JSON.stringify(data.attributes.statistics)}`);
-                      queueFirebaseUpdate(mowerId, 'statistics', {
-                        ...data.attributes.statistics,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Successfully processed statistics-event-v2 for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing statistics-event-v2:`, eventError);
-                  }
-                  break;
-                  
-                case 'workArea-event-v2':
-                  // Handle work area updates with special care for progress data
-                  if (data.attributes.workAreas && Array.isArray(data.attributes.workAreas)) {
-                    // Store work areas data
-                    queueFirebaseUpdate(mowerId, 'workAreas', data.attributes.workAreas);
-                    
-                    // Process and store area completion percentage for UI display
-                    // Find any areas with progress information
-                    const workAreasWithProgress = data.attributes.workAreas.filter(area => 
-                      area && area.attributes && typeof area.attributes.progress === 'number'
-                    );
-                    
-                    if (workAreasWithProgress.length > 0) {
-                      const totalProgress = workAreasWithProgress.reduce(
-                        (sum, area) => sum + (area.attributes.progress || 0), 
-                        0
-                      );
-                      
-                      const avgProgress = Math.round(totalProgress / workAreasWithProgress.length);
-                      const progressData = {
-                        areaComplete: `${avgProgress}%`,
-                        areas: workAreasWithProgress.map(area => ({
-                          workAreaId: area.attributes.workAreaId || parseInt(area.id, 10),
-                          name: area.attributes.name || `Work Area ${area.attributes.workAreaId || area.id}`,
-                          progress: area.attributes.progress || 0,
-                          lastCompleted: area.attributes.lastTimeCompleted
-                        }))
-                      };
-                      
-                      // Store progress data directly (force immediate update to ensure it's displayed)
-                      forceImmediateUpdate(mowerId, 'workAreaProgress', progressData);
-                      
-                      // Also update the main document with the percentage
-                      forceImmediateUpdate(mowerId, 'areaComplete', `${avgProgress}%`);
-                      
-                      console.log(`[${connectionId}] Work area progress for mower ${mowerId}: ${avgProgress}%`);
-                    }
-                  }
-                  break;
-                  
-                case 'work-area-event-v2':
-                  // Handle work area updates with special care for progress data
-                  if (data.attributes.workAreas && Array.isArray(data.attributes.workAreas)) {
-                    // Store work areas data
-                    queueFirebaseUpdate(mowerId, 'workAreas', data.attributes.workAreas);
-                    
-                    // Process and store area completion percentage for UI display
-                    // Find any areas with progress information
-                    const workAreasWithProgress = data.attributes.workAreas.filter(area => 
-                      area && area.attributes && typeof area.attributes.progress === 'number'
-                    );
-                    
-                    if (workAreasWithProgress.length > 0) {
-                      const totalProgress = workAreasWithProgress.reduce(
-                        (sum, area) => sum + (area.attributes.progress || 0), 
-                        0
-                      );
-                      
-                      const avgProgress = Math.round(totalProgress / workAreasWithProgress.length);
-                      const progressData = {
-                        areaComplete: `${avgProgress}%`,
-                        areas: workAreasWithProgress.map(area => ({
-                          workAreaId: area.attributes.workAreaId || parseInt(area.id, 10),
-                          name: area.attributes.name || `Work Area ${area.attributes.workAreaId || area.id}`,
-                          progress: area.attributes.progress || 0,
-                          lastCompleted: area.attributes.lastTimeCompleted
-                        }))
-                      };
-                      
-                      // Store progress data directly (force immediate update to ensure it's displayed)
-                      forceImmediateUpdate(mowerId, 'workAreaProgress', progressData);
-                      
-                      // Also update the main document with the percentage
-                      forceImmediateUpdate(mowerId, 'areaComplete', `${avgProgress}%`);
-                      
-                      console.log(`[${connectionId}] Work area progress for mower ${mowerId}: ${avgProgress}%`);
-                    }
-                  }
-                  break;
-                  
-                case 'stayOutZone-event-v2':
-                  // Handle stay out zone events
-                  try {
-                    if (data.attributes.stayOutZone) {
-                      console.log(`[${connectionId}] 🚫 STAY OUT ZONE EVENT: ${JSON.stringify(data.attributes.stayOutZone)}`);
-                      queueFirebaseUpdate(mowerId, 'stayOutZones', {
-                        ...data.attributes.stayOutZone,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Successfully processed stayOutZone-event-v2 for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing stayOutZone-event-v2:`, eventError);
-                  }
-                  break;
-                  
-                case 'settings-event-v2':
-                  // Handle settings events
-                  try {
-                    if (data.attributes.settings) {
-                      console.log(`[${connectionId}] ⚙️ SETTINGS EVENT: ${JSON.stringify(data.attributes.settings)}`);
-                      queueFirebaseUpdate(mowerId, 'settings', {
-                        ...data.attributes.settings,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Successfully processed settings-event-v2 for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing settings-event-v2:`, eventError);
-                  }
-                  break;
-                  
-                case 'system-event-v2':
-                  // Handle system events
-                  try {
-                    if (data.attributes.system) {
-                      console.log(`[${connectionId}] 🖥️ SYSTEM EVENT: ${JSON.stringify(data.attributes.system)}`);
-                      queueFirebaseUpdate(mowerId, 'system', {
-                        ...data.attributes.system,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Successfully processed system-event-v2 for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing system-event-v2:`, eventError);
-                  }
-                  break;
-                  
-                case 'error-event-v2':
-                  // Handle error events
-                  try {
-                    if (data.attributes.error) {
-                      console.log(`[${connectionId}] ❌ ERROR EVENT: ${JSON.stringify(data.attributes.error)}`);
-                      queueFirebaseUpdate(mowerId, 'errors', {
-                        ...data.attributes.error,
-                        timestamp: new Date()
-                      });
-                      
-                      // Also store in history collection for errors
-                      if (db) {
-                        try {
-                          const historyData = {
-                            timestamp: serverTimestamp(),
-                            type: 'error',
-                            data: data.attributes.error
-                          };
-                          
-                          setDoc(
-                            doc(collection(db, MOWERS_COLLECTION, mowerId, 'history'), randomUUID()),
-                            historyData
-                          );
-                        } catch (error) {
-                          console.error(`Error storing error history for mower ${mowerId}:`, error);
-                        }
-                      }
-                      console.log(`[${connectionId}] Successfully processed error-event-v2 for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing error-event-v2:`, eventError);
-                  }
-                  break;
-              
-                // Default case to catch any other event types
-                default:
-                  try {
-                    console.log(`[${connectionId}] ⚠️ UNHANDLED EVENT TYPE: ${data.type}`);
-                    // Still store unknown event types in Firebase for future reference
-                    if (data.attributes) {
-                      queueFirebaseUpdate(mowerId, `events_${data.type}`, {
-                        ...data.attributes,
-                        timestamp: new Date()
-                      });
-                      console.log(`[${connectionId}] Stored unknown event type ${data.type} for mower ${mowerId}`);
-                    }
-                  } catch (eventError) {
-                    console.error(`[${connectionId}] Error processing unknown event type ${data.type}:`, eventError);
-                  }
-                  break;
-            }
-          } else {
-            console.log(`[${connectionId}] ℹ️ NON-MOWER EVENT MESSAGE: ${JSON.stringify(data)}`);
-          }
-        } catch (parseError) {
-          // Just log parsing errors and continue
-          console.error(`[${connectionId}] ❌ ERROR PARSING MESSAGE:`, parseError);
-        }
-        
-        // If client is still connected, send the message
-        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-          connection.messageCount++;
-          connection.lastMessageTime = new Date();
-          connection.lastActivity = Date.now();
-          connection.isAlive = true;
-          
-          // Log message type if JSON
-          try {
-            const parsedMsg = JSON.parse(message.toString());
-            console.log(`[${connectionId}] Husqvarna -> Client: ${parsedMsg.type || 'unknown'} event`);
-          } catch (e) {
-            console.log(`[${connectionId}] Husqvarna -> Client: ${message.length} bytes`);
-          }
-          
-          connection.clientWs.send(message);
-        }
-      } catch (error) {
-        console.error(`[${connectionId}] ❌ ERROR PROCESSING MESSAGE:`, error);
-      }
-    });
-    
-    // Handle successful connection
-    husqvarnaWs.on('open', async () => {
-      try {
-        // Clear the connection timeout
-        clearTimeout(timeoutId);
-        
-        console.log(`[${connectionId}] Successfully connected to Husqvarna WebSocket API`);
-        connection.status = 'connected';
-        connection.reconnectAttempts = 0;
-        
-        // CRITICAL ADDITION: Fetch user information and mowers to properly initialize WebSocket
-        try {
-          // Fetch user ID and mowers using REST API
-          const { userId, mowerIds, mowers } = await fetchUserMowers(connectionId, connection.token, connection.apiKey);
-          
-          // Store user ID and mower IDs in the connection
-          connection.userId = userId;
-          connection.mowerIds = mowerIds;
-          connection.mowers = mowers;
-          
-          // STEP 1: Send initialization message with user ID
-          console.log(`[${connectionId}] Initializing WebSocket with user ID: ${userId}`);
-          const initMessage = {
-            id: randomUUID(),
-            type: 'initialize',
-            attributes: {
-              userId: userId
-            }
-          };
-          husqvarnaWs.send(JSON.stringify(initMessage));
-          
-          // STEP 2: Subscribe to each mower
-          // Wait a short time to ensure initialization is processed
-          setTimeout(() => {
-            if (mowerIds.length === 0) {
-              console.warn(`[${connectionId}] No mowers found for user ${userId}`);
-              
-              // Notify client
-              if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-                connection.clientWs.send(JSON.stringify({
-                  type: 'connection_status',
-                  status: 'warning',
-                  message: 'Connected to Husqvarna WebSocket API, but no mowers were found.'
-                }));
-              }
-              return;
-            }
-            
-            console.log(`[${connectionId}] Subscribing to ${mowerIds.length} mowers...`);
-            
-            // Subscribe to each mower
-            mowerIds.forEach((mowerId, index) => {
-              // Stagger subscriptions slightly to avoid overwhelming the API
-              setTimeout(() => {
-                console.log(`[${connectionId}] Subscribing to mower: ${mowerId}`);
-                const subscribeMessage = {
-                  id: randomUUID(),
-                  type: 'start-subscription',
-                  attributes: {
-                    topics: [
-                      `mower/${mowerId}`
-                    ]
-                  }
-                };
-                husqvarnaWs.send(JSON.stringify(subscribeMessage));
-              }, index * 100); // 100ms delay between each subscription
-            });
-            
-            // Notify client of successful connection and subscriptions
-            if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-              connection.clientWs.send(JSON.stringify({
-                type: 'connection_status',
-                status: 'subscribed',
-                message: `Successfully connected to Husqvarna WebSocket API and subscribed to ${mowerIds.length} mowers`,
-                mowers: mowers.map(m => ({ id: m.id, name: m.attributes.system?.name || 'Unknown Mower' }))
-              }));
-            }
-          }, 1000); // Wait 1s after initialization to begin subscriptions
-          
-        } catch (error) {
-          console.error(`[${connectionId}] Failed to initialize WebSocket with user data:`, error.message);
-          
-          // Still notify client of basic connection
-          if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-            connection.clientWs.send(JSON.stringify({
-              type: 'connection_status',
-              status: 'connected',
-              message: 'Connected to Husqvarna WebSocket API, but failed to fetch mower information.',
-              error: error.message
-            }));
-          }
-        }
-      } catch (error) {
-        console.error(`[${connectionId}] Error during WebSocket initialization:`, error);
-        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-          connection.clientWs.send(JSON.stringify({
-            type: 'connection_status',
-            status: 'error',
-            error: 'initialization_failed',
-            message: `Connected but failed to initialize: ${error.message}`
-          }));
-        }
-      }
-    });
-    
-    // Handle connection errors
-    husqvarnaWs.on('error', async (error) => {
-      console.error(`[${connectionId}] Husqvarna WebSocket error:`, error.message || error);
-      
-      // Clear the connection timeout
-      clearTimeout(timeoutId);
-      
-      // Check if the error is related to authentication
-      if (error.message && error.message.includes('403')) {
-        console.error(`[${connectionId}] Authentication error with Husqvarna API - likely an invalid or expired token`);
-        
-        // Notify client about the authentication error
-        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-          connection.clientWs.send(JSON.stringify({
-            type: 'connection_status',
-            status: 'error',
-            error: 'authentication_failed',
-            message: 'The authentication token was rejected by the Husqvarna API. Please log in again.'
-          }));
-        }
-      }
-      
-      // If client is still connected, try to reconnect
-      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-        connection.reconnectAttempts++;
-        if (connection.reconnectAttempts < 5) {
-          const delay = Math.min(30000, RECONNECT_INTERVAL * Math.pow(1.5, connection.reconnectAttempts));
-          console.log(`[${connectionId}] Will retry in ${delay}ms (attempt ${connection.reconnectAttempts})`);
-          setTimeout(() => connectToHusqvarnaWS(connectionId), delay);
-        } else {
-          console.error(`[${connectionId}] Maximum reconnection attempts reached`);
-          
-          // Notify client
-          if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-            connection.clientWs.send(JSON.stringify({
-              type: 'connection_status',
-              status: 'error',
-              error: 'max_retry_exceeded',
-              message: 'Failed to connect to Husqvarna API after 5 attempts'
-            }));
-          }
-        }
-      }
-    });
-    
-    // Handle connection closure
-    husqvarnaWs.on('close', (code, reason) => {
-      console.log(`[${connectionId}] Husqvarna WebSocket closed: ${code} ${reason || 'No reason provided'}`);
-      
-      // If client is still connected, try to reconnect
-      if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-        if (code === 1000) {
-          // Normal closure, no need to reconnect
-          console.log(`[${connectionId}] Normal closure, no reconnection needed`);
-          
-          // Notify client
-          connection.clientWs.send(JSON.stringify({
-            type: 'connection_status',
-            status: 'disconnected',
-            message: 'Husqvarna WebSocket connection closed normally'
-          }));
-        } else {
-          // Abnormal closure, try to reconnect
-          connection.reconnectAttempts++;
-          if (connection.reconnectAttempts < 5) {
-            const delay = Math.min(30000, RECONNECT_INTERVAL * Math.pow(1.5, connection.reconnectAttempts));
-            console.log(`[${connectionId}] Will retry in ${delay}ms (attempt ${connection.reconnectAttempts})`);
-            
-            // Notify client
-            connection.clientWs.send(JSON.stringify({
-              type: 'connection_status',
-              status: 'reconnecting',
-              message: `Connection lost. Reconnecting in ${delay/1000} seconds...`
-            }));
-            
-            setTimeout(() => connectToHusqvarnaWS(connectionId), delay);
-          } else {
-            console.error(`[${connectionId}] Maximum reconnection attempts reached`);
-            
-            // Notify client
-            connection.clientWs.send(JSON.stringify({
-              type: 'connection_status',
-              status: 'error',
-              error: 'max_retry_exceeded',
-              message: 'Failed to connect to Husqvarna API after 5 attempts'
-            }));
-          }
-        }
-      }
-    });
-    
-    // Handle client disconnection
-    connection.clientWs.on('close', () => {
-      console.log(`[${connectionId}] Client disconnected`);
-      
-      // Close Husqvarna connection when client disconnects
-      if (connection.husqvarnaWs) {
-        connection.husqvarnaWs.close(1000, 'Client disconnected');
-      }
-      
-      // Remove connection
-      connections.delete(connectionId);
-    });
-    
-    // Handle client errors
-    connection.clientWs.on('error', (error) => {
-      console.error(`[${connectionId}] Client WebSocket error:`, error);
-    });
-    
-    // Handle messages from client (to Husqvarna)
-    connection.clientWs.on('message', (message) => {
-      if (connection.husqvarnaWs && connection.husqvarnaWs.readyState === WebSocket.OPEN) {
-        try {
-          // Check if it's a ping message (don't forward)
-          let isPing = false;
-          try {
-            const data = JSON.parse(message.toString());
-            if (data.type === 'ping') {
-              isPing = true;
-              console.log(`[${connectionId}] Client ping received (not forwarded)`);
-              
-              // Send pong response
-              connection.clientWs.send(JSON.stringify({
-                type: 'pong',
-                timestamp: Date.now()
-              }));
-            }
-          } catch (e) {
-            // Not JSON, just forward
-          }
-          
-          // Forward non-ping messages
-          if (!isPing) {
-            connection.messageCount++;
-            console.log(`[${connectionId}] Forwarding to Husqvarna: ${message}`);
-            connection.husqvarnaWs.send(message);
-          }
-        } catch (error) {
-          console.error(`[${connectionId}] Error forwarding message to Husqvarna:`, error);
-        }
-      } else {
-        console.warn(`[${connectionId}] Client message received but Husqvarna connection is not open`);
-      }
-    });
-  } catch (error) {
-    console.error(`[${connectionId}] ❌ ERROR ESTABLISHING HUSQVARNA WEBSOCKET CONNECTION:`, error);
-    
-    // Clean up on error
-    if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-      connection.clientWs.send(JSON.stringify({
-        type: 'connection_status',
-        status: 'error',
-        error: 'connection_failed',
-        message: `Failed to establish connection: ${error.message}`
-      }));
-    }
-  }
-}
-
-/**
- * Periodic API polling function to ensure we have recent data even for idle mowers
- * This acts as a backup to WebSocket data and ensures we have data at least a few times per day
- */
-async function pollMowerData() {
-  if (!db) {
-    console.log('Skipping API poll: Firebase not initialized');
-    return;
-  }
-  
-  try {
-    apiPollingState.isRunning = true;
-    apiPollingState.lastPollTime = new Date();
-    apiPollingState.pollCount++;
-    
-    console.log(`🔄 STARTING API POLL #${apiPollingState.pollCount} at ${apiPollingState.lastPollTime.toISOString()}`);
-    
-    // Get all active user connections to poll their mowers
-    if (connections.size === 0) {
-      console.log('No active connections to poll mowers for');
-      return;
-    }
-    
-    // For each connection, poll all their mowers
-    let totalMowersPolled = 0;
-    
-    for (const [connectionId, connection] of connections.entries()) {
-      // Skip connections without tokens or API keys
-      if (!connection.token || !connection.apiKey) {
-        console.log(`[${connectionId}] Skipping poll: Missing token or API key`);
-        continue;
-      }
-      
-      try {
-        console.log(`[${connectionId}] Polling mowers via REST API using token...`);
-        
-        // Get user mowers if not already fetched
-        if (!connection.mowerIds || connection.mowerIds.length === 0) {
-          try {
-            const { userId, mowerIds } = await fetchUserMowers(connectionId, connection.token, connection.apiKey);
-            connection.userId = userId;
-            connection.mowerIds = mowerIds;
-          } catch (error) {
-            console.error(`[${connectionId}] Failed to fetch mowers for polling:`, error.message);
-            continue;
-          }
-        }
-        
-        // If we have mower IDs, poll each one
-        if (connection.mowerIds && connection.mowerIds.length > 0) {
-          for (const mowerId of connection.mowerIds) {
-            try {
-              console.log(`[${connectionId}] Polling mower ${mowerId} via REST API...`);
-              
-              // Fetch mower details
-              const mowerResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}`, {
-                headers: {
-                  'Authorization': `Bearer ${connection.token}`,
-                  'X-Api-Key': connection.apiKey,
-                  'Authorization-Provider': 'husqvarna',
-                  'Accept': 'application/vnd.api+json'
-                }
-              });
-              
-              if (mowerResponse.status === 200 && mowerResponse.data && mowerResponse.data.data) {
-                const mowerData = mowerResponse.data.data;
-                console.log(`[${connectionId}] ✅ Successfully polled mower ${mowerId} data via REST API`);
-                
-                // Process and store different aspects of the mower data
-                const attributes = mowerData.attributes || {};
-                
-                // Store battery data if available
-                if (attributes.battery) {
-                  queueFirebaseUpdate(mowerId, 'battery', {
-                    batteryPercent: attributes.battery.batteryPercent || 0,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store mower status data if available
-                if (attributes.mower) {
-                  queueFirebaseUpdate(mowerId, 'mower', {
-                    activity: attributes.mower.activity || 'UNKNOWN',
-                    state: attributes.mower.state || 'UNKNOWN',
-                    mode: attributes.mower.mode || 'UNKNOWN',
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store position data if available
-                if (attributes.positions && attributes.positions.length > 0) {
-                  const position = attributes.positions[0]; // Use most recent position
-                  queueFirebaseUpdate(mowerId, 'position', {
-                    latitude: position.latitude,
-                    longitude: position.longitude,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store system data if available
-                if (attributes.system) {
-                  queueFirebaseUpdate(mowerId, 'system', {
-                    ...attributes.system,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store settings data if available
-                if (attributes.settings) {
-                  queueFirebaseUpdate(mowerId, 'settings', {
-                    ...attributes.settings,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store calendar data if available
-                if (attributes.calendar) {
-                  queueFirebaseUpdate(mowerId, 'calendar', {
-                    tasks: attributes.calendar.tasks || [],
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store planner data if available
-                if (attributes.planner) {
-                  queueFirebaseUpdate(mowerId, 'planner', {
-                    ...attributes.planner,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                // Store statistics data if available
-                if (attributes.statistics) {
-                  queueFirebaseUpdate(mowerId, 'statistics', {
-                    ...attributes.statistics,
-                    timestamp: new Date(),
-                    source: 'api_poll'
-                  });
-                }
-                
-                totalMowersPolled++;
-              } else {
-                console.error(`[${connectionId}] Failed to poll mower ${mowerId}: ${mowerResponse.status} ${mowerResponse.statusText}`);
-              }
-            } catch (mowerError) {
-              console.error(`[${connectionId}] Error polling mower ${mowerId}:`, mowerError.message);
-            }
-          }
-        } else {
-          console.log(`[${connectionId}] No mowers to poll`);
-        }
-      } catch (connectionError) {
-        console.error(`[${connectionId}] Error during poll:`, connectionError.message);
-      }
-    }
-    
-    console.log(`🔄 API POLL COMPLETE: Successfully polled ${totalMowersPolled} mowers`);
-    
-    // Store API poll statistics in Firebase for monitoring
-    if (db) {
-      try {
-        await setDoc(doc(db, 'system', 'api_polling'), {
-          lastPollTime: serverTimestamp(),
-          pollCount: apiPollingState.pollCount,
-          mowersPolled: totalMowersPolled,
-          connectionCount: connections.size
-        }, { merge: true });
-      } catch (error) {
-        console.error('Error storing API poll statistics:', error);
-      }
-    }
-  } catch (error) {
-    console.error('Error in API polling function:', error);
-  } finally {
-    apiPollingState.isRunning = false;
-    
-    // Schedule next poll
-    apiPollingState.scheduledPollTime = new Date(Date.now() + API_POLL_INTERVAL);
-    console.log(`📅 Next API poll scheduled for ${apiPollingState.scheduledPollTime.toISOString()}`);
-  }
-}
-
-/**
- * Handle dashboard refresh request to fetch all mower data comprehensively
- * This is more thorough than the periodic polling and fetches additional data
- * like messages, work areas, stay out zones, etc.
- */
-async function handleDashboardRefresh(req, res) {
-  if (!db) {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Firebase not initialized' }));
-    return;
-  }
-  
-  // Check if there are active connections
-  if (connections.size === 0) {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'No active connections to fetch mower data' }));
-    return;
-  }
-  
-  // Start the refresh process asynchronously so we can return a response immediately
-  res.writeHead(202, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ 
-    message: 'Dashboard refresh started',
-    connections: connections.size,
-    timestamp: new Date().toISOString()
-  }));
-  
-  // Now perform the comprehensive data fetch asynchronously
-  (async () => {
-    try {
-      console.log('🔄 DASHBOARD REFRESH: Starting comprehensive mower data fetch');
-      let totalMowersRefreshed = 0;
-      let totalEndpointsCalled = 0;
-      
-      // Track fetch stats for each mower
-      const refreshStats = {
-        startTime: new Date(),
-        mowers: {},
-        success: true
-      };
-      
-      // For each connection, fetch detailed data for all associated mowers
-      for (const [connectionId, connection] of connections.entries()) {
-        // Skip connections without tokens or API keys
-        if (!connection.token || !connection.apiKey) {
-          console.log(`[${connectionId}] Skipping dashboard refresh: Missing token or API key`);
-          continue;
-        }
-        
-        try {
-          console.log(`[${connectionId}] Fetching comprehensive mower data for dashboard...`);
-          
-          // Get user mowers if not already fetched
-          if (!connection.mowerIds || connection.mowerIds.length === 0) {
-            try {
-              const { userId, mowerIds } = await fetchUserMowers(connectionId, connection.token, connection.apiKey);
-              connection.userId = userId;
-              connection.mowerIds = mowerIds;
-            } catch (error) {
-              console.error(`[${connectionId}] Failed to fetch mowers for dashboard refresh:`, error.message);
-              continue;
-            }
-          }
-          
-          // If we have mower IDs, fetch detailed data for each one
-          if (connection.mowerIds && connection.mowerIds.length > 0) {
-            for (const mowerId of connection.mowerIds) {
-              try {
-                console.log(`[${connectionId}] Fetching comprehensive data for mower ${mowerId}...`);
-                refreshStats.mowers[mowerId] = {
-                  endpoints: {},
-                  success: true
-                };
-                
-                // ENDPOINT 1: Fetch main mower details
-                try {
-                  const mowerResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}`, {
-                    headers: {
-                      'Authorization': `Bearer ${connection.token}`,
-                      'X-Api-Key': connection.apiKey,
-                      'Authorization-Provider': 'husqvarna',
-                      'Accept': 'application/vnd.api+json'
-                    }
-                  });
-                  
-                  totalEndpointsCalled++;
-                  refreshStats.mowers[mowerId].endpoints.mower = true;
-                  
-                  if (mowerResponse.status === 200 && mowerResponse.data && mowerResponse.data.data) {
-                    console.log(`[${connectionId}] ✅ Successfully fetched main data for mower ${mowerId}`);
-                    
-                    // Store the entire mower object
-                    const mowerData = mowerResponse.data.data;
-                    
-                    // Extract and store individual data attributes
-                    const attributes = mowerData.attributes || {};
-                    
-                    // Basic mower metadata
-                    queueFirebaseUpdate(mowerId, 'metadata', {
-                      id: mowerData.id,
-                      type: mowerData.type,
-                      timestamp: new Date(),
-                      source: 'dashboard_refresh'
-                    });
-                    
-                    // Store battery data if available
-                    if (attributes.battery) {
-                      queueFirebaseUpdate(mowerId, 'battery', {
-                        ...attributes.battery,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store mower status data if available
-                    if (attributes.mower) {
-                      queueFirebaseUpdate(mowerId, 'mower', {
-                        ...attributes.mower,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store position data if available
-                    if (attributes.positions && attributes.positions.length > 0) {
-                      queueFirebaseUpdate(mowerId, 'position', {
-                        ...attributes.positions[0],
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store system data if available
-                    if (attributes.system) {
-                      queueFirebaseUpdate(mowerId, 'system', {
-                        ...attributes.system,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store settings data if available
-                    if (attributes.settings) {
-                      queueFirebaseUpdate(mowerId, 'settings', {
-                        ...attributes.settings,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store calendar data if available
-                    if (attributes.calendar) {
-                      queueFirebaseUpdate(mowerId, 'calendar', {
-                        ...attributes.calendar,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store planner data if available
-                    if (attributes.planner) {
-                      queueFirebaseUpdate(mowerId, 'planner', {
-                        ...attributes.planner,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store statistics data if available
-                    if (attributes.statistics) {
-                      queueFirebaseUpdate(mowerId, 'statistics', {
-                        ...attributes.statistics,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                    
-                    // Store capabilities if available
-                    if (attributes.capabilities) {
-                      queueFirebaseUpdate(mowerId, 'capabilities', {
-                        ...attributes.capabilities,
-                        timestamp: new Date(),
-                        source: 'dashboard_refresh'
-                      });
-                    }
-                  } else {
-                    console.error(`[${connectionId}] Failed to fetch main data for mower ${mowerId}: ${mowerResponse.status}`);
-                    refreshStats.mowers[mowerId].endpoints.mower = false;
-                    refreshStats.mowers[mowerId].success = false;
-                    refreshStats.success = false;
-                  }
-                } catch (error) {
-                  console.error(`[${connectionId}] Error fetching main data for mower ${mowerId}:`, error.message);
-                  refreshStats.mowers[mowerId].endpoints.mower = false;
-                  refreshStats.mowers[mowerId].success = false;
-                  refreshStats.success = false;
-                }
-                
-                // ENDPOINT 2: Fetch mower messages
-                try {
-                  const messagesResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}/messages`, {
-                    headers: {
-                      'Authorization': `Bearer ${connection.token}`,
-                      'X-Api-Key': connection.apiKey,
-                      'Authorization-Provider': 'husqvarna',
-                      'Accept': 'application/vnd.api+json'
-                    }
-                  });
-                  
-                  totalEndpointsCalled++;
-                  refreshStats.mowers[mowerId].endpoints.messages = true;
-                  
-                  if (messagesResponse.status === 200 && messagesResponse.data && messagesResponse.data.data) {
-                    console.log(`[${connectionId}] ✅ Successfully fetched messages for mower ${mowerId}`);
-                    
-                    const messages = messagesResponse.data.data;
-                    queueFirebaseUpdate(mowerId, 'messagesList', {
-                      items: messages,
-                      count: messages.length,
-                      timestamp: new Date(),
-                      source: 'dashboard_refresh'
-                    });
-                    
-                    // Also store individual messages
-                    messages.forEach((message, index) => {
-                      if (message.attributes) {
-                        // Store in Firebase
-                        queueFirebaseUpdate(mowerId, `messages/${message.id || `msg-${Date.now()}-${index}`}`, {
-                          ...message.attributes,
-                          timestamp: new Date(),
-                          source: 'dashboard_refresh'
-                        });
-                        
-                        // Also add to history if it's a recent message
-                        if (db && message.attributes.datetime) {
-                          const messageDate = new Date(message.attributes.datetime);
-                          const now = new Date();
-                          const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                          
-                          // Only add to history if message is from the last week
-                          if (messageDate > oneWeekAgo) {
-                            try {
-                              setDoc(
-                                doc(collection(db, MOWERS_COLLECTION, mowerId, 'history'), `msg-${message.id || Date.now()}-${index}`),
-                                {
-                                  timestamp: serverTimestamp(),
-                                  type: 'message',
-                                  data: message.attributes,
-                                  source: 'dashboard_refresh'
-                                }
-                              );
-                            } catch (historyError) {
-                              console.error(`Error storing message in history:`, historyError);
-                            }
-                          }
-                        }
-                      }
-                    });
-                  } else {
-                    console.error(`[${connectionId}] Failed to fetch messages for mower ${mowerId}: ${messagesResponse.status}`);
-                    refreshStats.mowers[mowerId].endpoints.messages = false;
-                  }
-                } catch (error) {
-                  console.error(`[${connectionId}] Error fetching messages for mower ${mowerId}:`, error.message);
-                  refreshStats.mowers[mowerId].endpoints.messages = false;
-                }
-                
-                // ENDPOINT 3: Fetch stay out zones
-                try {
-                  const stayOutZonesResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}/stayOutZones`, {
-                    headers: {
-                      'Authorization': `Bearer ${connection.token}`,
-                      'X-Api-Key': connection.apiKey,
-                      'Authorization-Provider': 'husqvarna',
-                      'Accept': 'application/vnd.api+json'
-                    }
-                  });
-                  
-                  totalEndpointsCalled++;
-                  refreshStats.mowers[mowerId].endpoints.stayOutZones = true;
-                  
-                  if (stayOutZonesResponse.status === 200 && stayOutZonesResponse.data && stayOutZonesResponse.data.data) {
-                    console.log(`[${connectionId}] ✅ Successfully fetched stay out zones for mower ${mowerId}`);
-                    
-                    const zones = stayOutZonesResponse.data.data;
-                    queueFirebaseUpdate(mowerId, 'stayOutZones', {
-                      items: zones,
-                      count: zones.length,
-                      timestamp: new Date(),
-                      source: 'dashboard_refresh'
-                    });
-                    
-                    // Also store individual zones
-                    zones.forEach((zone, index) => {
-                      if (zone.id && zone.attributes) {
-                        queueFirebaseUpdate(mowerId, `stayOutZone/${zone.id}`, {
-                          id: zone.id,
-                          ...zone.attributes,
-                          timestamp: new Date(),
-                          source: 'dashboard_refresh'
-                        });
-                      }
-                    });
-                  } else {
-                    console.error(`[${connectionId}] Failed to fetch stay out zones for mower ${mowerId}: ${stayOutZonesResponse.status}`);
-                    refreshStats.mowers[mowerId].endpoints.stayOutZones = false;
-                  }
-                } catch (error) {
-                  console.error(`[${connectionId}] Error fetching stay out zones for mower ${mowerId}:`, error.message);
-                  refreshStats.mowers[mowerId].endpoints.stayOutZones = false;
-                }
-                
-                // ENDPOINT 4: Fetch work areas
-                try {
-                  const workAreasResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}/workAreas`, {
-                    headers: {
-                      'Authorization': `Bearer ${connection.token}`,
-                      'X-Api-Key': connection.apiKey,
-                      'Authorization-Provider': 'husqvarna',
-                      'Accept': 'application/vnd.api+json'
-                    }
-                  });
-                  
-                  totalEndpointsCalled++;
-                  refreshStats.mowers[mowerId].endpoints.workAreas = true;
-                  
-                  if (workAreasResponse.status === 200 && workAreasResponse.data && workAreasResponse.data.data) {
-                    console.log(`[${connectionId}] ✅ Successfully fetched work areas for mower ${mowerId}`);
-                    
-                    const workAreas = workAreasResponse.data.data;
-                    queueFirebaseUpdate(mowerId, 'workAreas', {
-                      items: workAreas,
-                      count: workAreas.length,
-                      timestamp: new Date(),
-                      source: 'dashboard_refresh'
-                    });
-                    
-                    // Also store individual work areas
-                    for (const workArea of workAreas) {
-                      if (workArea.id) {
-                        queueFirebaseUpdate(mowerId, `workArea/${workArea.id}`, {
-                          id: workArea.id,
-                          ...workArea.attributes,
-                          timestamp: new Date(),
-                          source: 'dashboard_refresh'
-                        });
-                        
-                        // ENDPOINT 5: Fetch detailed work area data for each work area
-                        try {
-                          const workAreaDetailResponse = await axios.get(`${HUSQVARNA_API_URL}/mowers/${mowerId}/workAreas/${workArea.id}`, {
-                            headers: {
-                              'Authorization': `Bearer ${connection.token}`,
-                              'X-Api-Key': connection.apiKey,
-                              'Authorization-Provider': 'husqvarna',
-                              'Accept': 'application/vnd.api+json'
-                            }
-                          });
-                          
-                          totalEndpointsCalled++;
-                          refreshStats.mowers[mowerId].endpoints[`workArea_${workArea.id}`] = true;
-                          
-                          if (workAreaDetailResponse.status === 200 && workAreaDetailResponse.data && workAreaDetailResponse.data.data) {
-                            console.log(`[${connectionId}] ✅ Successfully fetched work area details for area ${workArea.id}`);
-                            
-                            const workAreaDetail = workAreaDetailResponse.data.data;
-                            queueFirebaseUpdate(mowerId, `workAreaDetail/${workArea.id}`, {
-                              ...workAreaDetail.attributes,
-                              timestamp: new Date(),
-                              source: 'dashboard_refresh'
-                            });
-                          } else {
-                            console.error(`[${connectionId}] Failed to fetch work area details for area ${workArea.id}: ${workAreaDetailResponse.status}`);
-                            refreshStats.mowers[mowerId].endpoints[`workArea_${workArea.id}`] = false;
-                          }
-                        } catch (error) {
-                          console.error(`[${connectionId}] Error fetching work area details for area ${workArea.id}:`, error.message);
-                          refreshStats.mowers[mowerId].endpoints[`workArea_${workArea.id}`] = false;
-                        }
-                      }
-                    }
-                  } else {
-                    console.error(`[${connectionId}] Failed to fetch work areas for mower ${mowerId}: ${workAreasResponse.status}`);
-                    refreshStats.mowers[mowerId].endpoints.workAreas = false;
-                  }
-                } catch (error) {
-                  console.error(`[${connectionId}] Error fetching work areas for mower ${mowerId}:`, error.message);
-                  refreshStats.mowers[mowerId].endpoints.workAreas = false;
-                }
-                
-                // Mark this mower as refreshed
-                totalMowersRefreshed++;
-              } catch (mowerError) {
-                console.error(`[${connectionId}] Error in dashboard refresh for mower ${mowerId}:`, mowerError.message);
-                refreshStats.mowers[mowerId].success = false;
-                refreshStats.success = false;
-              }
-            }
-          } else {
-            console.log(`[${connectionId}] No mowers to refresh for dashboard`);
-          }
-        } catch (connectionError) {
-          console.error(`[${connectionId}] Error during dashboard refresh:`, connectionError.message);
-        }
-      }
-      
-      // Finalize refresh statistics
-      refreshStats.endTime = new Date();
-      refreshStats.duration = refreshStats.endTime - refreshStats.startTime;
-      refreshStats.totalMowersRefreshed = totalMowersRefreshed;
-      refreshStats.totalEndpointsCalled = totalEndpointsCalled;
-      
-      console.log(`🔄 DASHBOARD REFRESH COMPLETE: Refreshed ${totalMowersRefreshed} mowers with ${totalEndpointsCalled} API calls in ${refreshStats.duration}ms`);
-      
-      // Store refresh statistics in Firebase
-      if (db) {
-        try {
-          await setDoc(doc(db, 'system', 'dashboard_refresh'), {
-            lastRefresh: serverTimestamp(),
-            stats: refreshStats,
-            success: refreshStats.success
-          }, { merge: true });
-        } catch (error) {
-          console.error('Error storing dashboard refresh statistics:', error);
-        }
-      }
-    } catch (error) {
-      console.error('Error in dashboard refresh:', error);
-    }
-  })();
-}
-
-// Initialize server components
-async function initializeServer() {
-  // Initialize Firebase
-  initializeFirebase();
-  
-  // Schedule periodic API polling (first poll after 5 minutes, then every API_POLL_INTERVAL)
-  setTimeout(() => {
-    pollMowerData();
-    // Set up recurring polls
-    setInterval(pollMowerData, API_POLL_INTERVAL);
-  }, 5 * 60 * 1000); // 5 minutes delay for first poll
-  
-  // Start server
-  server.listen(PORT, () => {
-    console.log(`WebSocket proxy server started on port ${PORT}`);
-    console.log(`API polling will run every ${API_POLL_INTERVAL / (60 * 60 * 1000)} hours`);
-    
-    // Set up heartbeat interval to check connections
-    setInterval(() => {
-      console.log(`Checking ${connections.size} connections for heartbeat...`);
-      connections.forEach((connection, id) => {
-        if (!connection.isAlive) {
-          console.log(`[${id}] Connection is no longer alive, terminating`);
-          if (connection.husqvarnaWs) {
-            connection.husqvarnaWs.terminate();
-          }
-          if (connection.clientWs) {
-            connection.clientWs.terminate();
-          }
-          connections.delete(id);
-          return;
-        }
-        
-        // Set to not alive, expecting pong to set it back to alive
-        connection.isAlive = false;
-        
-        // Send ping to both Husqvarna and client WebSockets
-        if (connection.husqvarnaWs && connection.husqvarnaWs.readyState === WebSocket.OPEN) {
-          connection.husqvarnaWs.ping();
-        }
-        if (connection.clientWs && connection.clientWs.readyState === WebSocket.OPEN) {
-          connection.clientWs.ping();
-        }
-      });
-    }, HEARTBEAT_INTERVAL);
-  });
-}
-
-// Start the server
-initializeServer(); 
+} 

@@ -8,8 +8,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2, Key, Lock, LogIn } from 'lucide-react';
-import Image from 'next/image';
 import Link from 'next/link';
+import { MowerDataService } from '@/lib/husqvarna/mowerDataService';
+import { toast } from 'react-hot-toast';
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
@@ -19,6 +20,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get('from') || '/dashboard';
   const [mounted, setMounted] = useState(false);
+  const [isSyncingData, setSyncingData] = useState(false);
 
   // If already authenticated, redirect to the dashboard
   useEffect(() => {
@@ -29,12 +31,57 @@ export default function LoginPage() {
     setMounted(true);
   }, [isAuthenticated, router, redirectTo]);
 
-  const handleLoginWithHusqvarna = () => {
+  const handleDemoLogin = async () => {
     setIsLoading(true);
     setError(null);
     
-    // Redirect to Husqvarna login/OAuth page
-    window.location.href = `/api/auth/login?redirect=${encodeURIComponent(redirectTo)}`;
+    try {
+      // Simulate login with a demo token
+      setTimeout(() => {
+        const demoToken = `demo_token_${Date.now()}`;
+        const refreshToken = `demo_refresh_${Date.now()}`;
+        login(demoToken, refreshToken);
+        
+        // After login, sync mower data with Firebase
+        syncMowerDataWithFirebase();
+      }, 1000);
+    } catch (loginError) {
+      console.error('Login error:', loginError);
+      setError('Failed to log in. Please try again.');
+      setIsLoading(false);
+    }
+  };
+
+  // Function to sync mower data with Firebase after login
+  const syncMowerDataWithFirebase = async () => {
+    setSyncingData(true);
+    
+    try {
+      // Show loading toast
+      const syncToast = toast.loading('Syncing mower data...');
+      
+      // Initialize MowerDataService
+      const mowerService = new MowerDataService();
+      
+      // Fetch mowers from API and store in Firebase
+      await mowerService.fetchAndStoreMowersToFirebase();
+      
+      // Complete loading toast
+      toast.dismiss(syncToast);
+      toast.success('Mower data synced successfully');
+      
+      // Redirect to dashboard
+      router.push(redirectTo);
+    } catch (syncError) {
+      console.error('Error syncing mower data:', syncError);
+      toast.error('Failed to sync mower data, but login succeeded');
+      
+      // Still redirect to dashboard even if sync fails
+      router.push(redirectTo);
+    } finally {
+      setSyncingData(false);
+      setIsLoading(false);
+    }
   };
 
   // Don't render anything until component is mounted
@@ -53,7 +100,7 @@ export default function LoginPage() {
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>
-            Connect with your Husqvarna account to manage your mowers
+            Sign in to manage your robotic mowers
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -63,17 +110,27 @@ export default function LoginPage() {
             </div>
           )}
           
+          {/* In a real app, this would be a form with username/password */}
+          <div className="grid gap-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" placeholder="example@domain.com" disabled={isLoading} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="password">Password</Label>
+            <Input id="password" type="password" disabled={isLoading} />
+          </div>
+          
           <Button 
             className="w-full flex gap-2 items-center justify-center" 
-            onClick={handleLoginWithHusqvarna}
-            disabled={isLoading}
+            onClick={handleDemoLogin}
+            disabled={isLoading || isSyncingData}
           >
-            {isLoading ? (
+            {isLoading || isSyncingData ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
             ) : (
               <LogIn className="h-4 w-4 mr-2" />
             )}
-            Sign in with Husqvarna
+            {isLoading ? 'Signing in...' : isSyncingData ? 'Syncing data...' : 'Sign in (Demo Mode)'}
           </Button>
         </CardContent>
         <CardFooter className="flex flex-col space-y-4">

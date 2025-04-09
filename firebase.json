@@ -1,0 +1,51 @@
+{
+  "functions": {
+    "source": ".",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log"
+    ],
+    "predeploy": [
+      "npm --prefix \"$RESOURCE_DIR\" run build"
+    ]
+  },
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "headers": [
+      {
+        "source": "**",
+        "headers": [
+          {
+            "key": "Access-Control-Allow-Origin",
+            "value": "*"
+          },
+          {
+            "key": "Access-Control-Allow-Methods",
+            "value": "GET,POST,OPTIONS"
+          },
+          {
+            "key": "Access-Control-Allow-Headers",
+            "value": "Content-Type,Authorization,X-Api-Key,Authorization-Provider"
+          },
+          {
+            "key": "Access-Control-Allow-Credentials",
+            "value": "true"
+          }
+        ]
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/api/websocket",
+        "function": "initiateWebSocketConnectionHttp"
+      }
+    ]
+  }
+} 

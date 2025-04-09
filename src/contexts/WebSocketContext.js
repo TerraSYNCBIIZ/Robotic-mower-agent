@@ -1,310 +1,109 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@/components/layout/AuthProvider';
+'use client';
 
-// Create a global singleton WebSocket instance outside of React's lifecycle
-// This will persist even when components remount
-let globalWsInstance = null;
-let globalConnectionStatus = 'disconnected';
-let globalLastMessage = null;
-let globalConnectionError = null;
-let globalListeners = [];
-let wsConfig = {
-  token: null,
-  apiKey: null,
-  reconnectAttempts: 0,
-  reconnectTimer: null,
-  pingInterval: null,
-  isConnecting: false
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import proxyWebSocketService from '@/services/proxyWebSocketService';
+
+// Define status enum
+export const ConnectionStatus = {
+  DISCONNECTED: 'disconnected',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  ERROR: 'error'
 };
 
-// Function to notify all listeners of state changes
-const notifyListeners = () => {
-  globalListeners.forEach(listener => {
-    try {
-      listener({
-        isConnected: globalWsInstance && globalWsInstance.readyState === WebSocket.OPEN,
-        connectionStatus: globalConnectionStatus,
-        connectionError: globalConnectionError,
-        lastMessage: globalLastMessage
-      });
-    } catch (error) {
-      console.error('Error notifying WebSocket listener:', error);
-    }
-  });
-};
-
-// Global connect function
-const connectToWebSocketServer = (token, force = false) => {
-  // Don't try to connect if already connecting unless forced
-  if (wsConfig.isConnecting && !force) {
-    console.log('Already attempting to connect to WebSocket, ignoring duplicate request');
-    return;
-  }
-  
-  // Don't connect if no token
-  if (!token) {
-    globalConnectionError = 'Authentication token is required';
-    globalConnectionStatus = 'error';
-    notifyListeners();
-    return;
-  }
-  
-  // If we have too many reconnect attempts, limit the frequency
-  if (wsConfig.reconnectAttempts > 5 && !force) {
-    const backoffTime = Math.min(30000, 1000 * Math.pow(2, wsConfig.reconnectAttempts - 5));
-    console.log(`Throttling WebSocket reconnection attempts. Waiting ${backoffTime/1000} seconds before next attempt.`);
-    
-    if (wsConfig.reconnectTimer) {
-      clearTimeout(wsConfig.reconnectTimer);
-    }
-    
-    wsConfig.reconnectTimer = setTimeout(() => {
-      connectToWebSocketServer(token, true);
-    }, backoffTime);
-    
-    return;
-  }
-  
-  // Close existing socket if any
-  if (globalWsInstance && globalWsInstance.readyState < 2) {
-    try {
-      wsConfig.isConnecting = false;
-      globalWsInstance.close(1000, 'User initiated disconnect');
-    } catch (e) {
-      console.error('Error closing existing WebSocket:', e);
-    }
-  }
-  
-  // Clear any existing ping interval
-  if (wsConfig.pingInterval) {
-    clearInterval(wsConfig.pingInterval);
-    wsConfig.pingInterval = null;
-  }
-  
-  try {
-    wsConfig.isConnecting = true;
-    wsConfig.token = token;
-    wsConfig.apiKey = process.env.NEXT_PUBLIC_HUSQVARNA_APP_KEY;
-    
-    // Get WebSocket proxy URL from environment
-    const wsURL = process.env.NEXT_PUBLIC_WEBSOCKET_PROXY_URL || 'ws://localhost:8000';
-    
-    console.log(`[SINGLETON] Connecting to WebSocket with token: ${token?.substring(0, 10)}...`);
-    globalConnectionStatus = 'connecting';
-    notifyListeners();
-    
-    // Connect using the user's authentication token
-    const newSocket = new WebSocket(`${wsURL}?token=${token}&apiKey=${wsConfig.apiKey}`);
-    
-    newSocket.onopen = () => {
-      console.log('[SINGLETON] WebSocket connected');
-      globalConnectionStatus = 'connected';
-      globalConnectionError = null;
-      wsConfig.reconnectAttempts = 0;
-      wsConfig.isConnecting = false;
-      notifyListeners();
-      
-      // Setup ping interval to keep connection alive
-      wsConfig.pingInterval = setInterval(() => {
-        if (newSocket.readyState === WebSocket.OPEN) {
-          newSocket.send(JSON.stringify({ type: 'ping', timestamp: Date.now() }));
-        }
-      }, 30000);
-    };
-    
-    newSocket.onclose = (event) => {
-      console.log(`[SINGLETON] WebSocket closed: ${event.code} ${event.reason}`);
-      globalConnectionStatus = 'disconnected';
-      wsConfig.isConnecting = false;
-      
-      // Clear ping interval
-      if (wsConfig.pingInterval) {
-        clearInterval(wsConfig.pingInterval);
-        wsConfig.pingInterval = null;
-      }
-      
-      notifyListeners();
-      
-      // Only attempt to reconnect on abnormal closures and if we have a token
-      if (event.code !== 1000 && wsConfig.token) {
-        wsConfig.reconnectAttempts++;
-        
-        // Attempt to reconnect with exponential backoff
-        const delay = Math.min(5000, Math.pow(2, wsConfig.reconnectAttempts) * 1000);
-        console.log(`[SINGLETON] Will attempt to reconnect in ${delay/1000} seconds (attempt ${wsConfig.reconnectAttempts})`);
-        
-        if (wsConfig.reconnectTimer) {
-          clearTimeout(wsConfig.reconnectTimer);
-        }
-        
-        wsConfig.reconnectTimer = setTimeout(() => {
-          connectToWebSocketServer(wsConfig.token, true);
-        }, delay);
-      }
-    };
-    
-    newSocket.onerror = (error) => {
-      console.error('[SINGLETON] WebSocket error:', error);
-      globalConnectionError = 'Connection error';
-      wsConfig.isConnecting = false;
-      notifyListeners();
-    };
-    
-    newSocket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        // Handle connection status messages
-        if (data.type === 'connection_status') {
-          globalConnectionStatus = data.status;
-          
-          if (data.status === 'error') {
-            globalConnectionError = data.message || 'Connection error';
-            
-            // Handle authentication errors
-            if (data.error === 'authentication_failed') {
-              console.error('[SINGLETON] Authentication failed with Husqvarna API');
-            }
-          }
-        } else {
-          // Handle other messages (mower events, etc)
-          globalLastMessage = data;
-          
-          // Emit custom event for components to listen
-          const customEvent = new CustomEvent('websocket-message', { detail: data });
-          window.dispatchEvent(customEvent);
-        }
-        
-        notifyListeners();
-      } catch (error) {
-        console.error('[SINGLETON] Error parsing WebSocket message:', error);
-      }
-    };
-    
-    // Store the socket globally
-    globalWsInstance = newSocket;
-    
-  } catch (error) {
-    console.error('[SINGLETON] WebSocket connection error:', error);
-    globalConnectionError = error.message;
-    globalConnectionStatus = 'error';
-    wsConfig.isConnecting = false;
-    wsConfig.reconnectAttempts++;
-    notifyListeners();
-  }
-};
-
-// Global disconnect function
-const disconnectFromWebSocketServer = () => {
-  if (globalWsInstance) {
-    if (wsConfig.pingInterval) {
-      clearInterval(wsConfig.pingInterval);
-      wsConfig.pingInterval = null;
-    }
-    
-    if (wsConfig.reconnectTimer) {
-      clearTimeout(wsConfig.reconnectTimer);
-      wsConfig.reconnectTimer = null;
-    }
-    
-    if (globalWsInstance.readyState < 2) {
-      globalWsInstance.close(1000, 'User initiated disconnect');
-    }
-    
-    globalWsInstance = null;
-    globalConnectionStatus = 'disconnected';
-    wsConfig.isConnecting = false;
-    notifyListeners();
-  }
-};
-
-// Create the WebSocket context
-const WebSocketContext = createContext();
-
-// Hook to use the WebSocket context
-export const useWebSocket = () => useContext(WebSocketContext);
+// Create context
+const WebSocketContext = createContext({
+  status: ConnectionStatus.DISCONNECTED,
+  lastMessage: null,
+  connect: () => {},
+  disconnect: () => {},
+  sendCommand: () => {},
+  error: null,
+  isConnected: false
+});
 
 // Provider component
-export const WebSocketProvider = ({ children }) => {
-  const [state, setState] = useState({
-    isConnected: globalWsInstance && globalWsInstance.readyState === WebSocket.OPEN,
-    connectionStatus: globalConnectionStatus,
-    connectionError: globalConnectionError,
-    lastMessage: globalLastMessage
-  });
+export function WebSocketProvider({ children }) {
+  const [status, setStatus] = useState(ConnectionStatus.DISCONNECTED);
+  const [lastMessage, setLastMessage] = useState(null);
+  const [error, setError] = useState(null);
   
-  // Get authentication token
-  const auth = useAuth();
-  const token = auth?.token;
-  const componentMountedRef = useRef(true);
-  
-  // Register this component as a listener for WebSocket state changes
-  useEffect(() => {
-    const listenerCallback = (newState) => {
-      if (componentMountedRef.current) {
-        setState(newState);
-      }
-    };
-    
-    // Add listener
-    globalListeners.push(listenerCallback);
-    
-    // Set mounted flag
-    componentMountedRef.current = true;
-    
-    // Remove listener on unmount
-    return () => {
-      componentMountedRef.current = false;
-      const index = globalListeners.indexOf(listenerCallback);
-      if (index !== -1) {
-        globalListeners.splice(index, 1);
-      }
-    };
-  }, []);
-  
-  // Connect when token becomes available and different from current token
-  useEffect(() => {
-    if (token && token !== wsConfig.token) {
-      console.log('[SINGLETON] Token changed or became available, connecting WebSocket');
-      connectToWebSocketServer(token);
+  // Connect to the WebSocket proxy
+  const connect = async () => {
+    try {
+      setStatus(ConnectionStatus.CONNECTING);
+      await proxyWebSocketService.connect();
+      setStatus(ConnectionStatus.CONNECTED);
+      setError(null);
+    } catch (err) {
+      setStatus(ConnectionStatus.ERROR);
+      setError(err.message || 'Failed to connect to WebSocket proxy');
+      console.error('WebSocket connection error:', err);
     }
-  }, [token]);
+  };
   
-  // Clean up global WebSocket on page unload to prevent memory leaks
+  // Disconnect from the WebSocket proxy
+  const disconnect = () => {
+    proxyWebSocketService.disconnect();
+    setStatus(ConnectionStatus.DISCONNECTED);
+  };
+  
+  // Send a command to a mower through the WebSocket proxy
+  const sendCommand = (mowerId, action, parameters) => {
+    if (status !== ConnectionStatus.CONNECTED) {
+      console.warn('Cannot send command: WebSocket is not connected');
+      return;
+    }
+    
+    proxyWebSocketService.sendCommand(mowerId, action, parameters);
+  };
+  
+  // Set up event listeners
   useEffect(() => {
-    const handleBeforeUnload = () => {
-      disconnectFromWebSocketServer();
+    // Handle status changes
+    const onStatusChange = (statusData) => {
+      setStatus(statusData.connected ? ConnectionStatus.CONNECTED : ConnectionStatus.DISCONNECTED);
     };
     
-    window.addEventListener('beforeunload', handleBeforeUnload);
+    // Handle messages
+    const onMessage = (message) => {
+      setLastMessage(message);
+    };
     
+    // Handle errors
+    const onError = (err) => {
+      setError(err.message || 'WebSocket error');
+      setStatus(ConnectionStatus.ERROR);
+    };
+    
+    // Register event listeners
+    proxyWebSocketService.events.on('status-change', onStatusChange);
+    proxyWebSocketService.events.on('message', onMessage);
+    proxyWebSocketService.events.on('error', onError);
+    
+    // Update initial status
+    setStatus(proxyWebSocketService.isConnected() ? ConnectionStatus.CONNECTED : ConnectionStatus.DISCONNECTED);
+    
+    // Cleanup on unmount
     return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
+      proxyWebSocketService.events.off('status-change', onStatusChange);
+      proxyWebSocketService.events.off('message', onMessage);
+      proxyWebSocketService.events.off('error', onError);
     };
   }, []);
   
-  // Create value object with methods for the context
+  // Calculate isConnected based on status
+  const isConnected = status === ConnectionStatus.CONNECTED;
+  
+  // Context value
   const value = {
-    ...state,
-    connect: useCallback(() => {
-      if (token) {
-        connectToWebSocketServer(token, true);
-      } else {
-        console.warn('[SINGLETON] Cannot connect: No token available');
-      }
-    }, [token]),
-    
-    disconnect: useCallback(() => {
-      disconnectFromWebSocketServer();
-    }, []),
-    
-    send: useCallback((data) => {
-      if (globalWsInstance && globalWsInstance.readyState === WebSocket.OPEN) {
-        globalWsInstance.send(typeof data === 'string' ? data : JSON.stringify(data));
-        return true;
-      }
-      return false;
-    }, [])
+    status,
+    lastMessage,
+    connect,
+    disconnect,
+    sendCommand,
+    error,
+    isConnected
   };
   
   return (
@@ -312,4 +111,15 @@ export const WebSocketProvider = ({ children }) => {
       {children}
     </WebSocketContext.Provider>
   );
-}; 
+}
+
+// Hook for using the context
+export function useWebSocket() {
+  const context = useContext(WebSocketContext);
+  if (context === undefined) {
+    throw new Error('useWebSocket must be used within a WebSocketProvider');
+  }
+  return context;
+}
+
+export default WebSocketContext; 

@@ -4,6 +4,8 @@ import { Inter as FontSans } from "next/font/google";
 import "@/styles/globals.css";
 import { cn } from "@/lib/utils";
 import ClientLayout from '@/components/layout/ClientLayout';
+import { FirebaseProvider } from '@/contexts/FirebaseContext'
+import ProxyWebSocketInitializer from '@/components/ProxyWebSocketInitializer';
 
 const fontSans = FontSans({
   subsets: ["latin"],
@@ -26,9 +28,12 @@ export default function RootLayout({
         "min-h-screen bg-background font-sans antialiased",
         fontSans.variable
       )}>
-        <ClientLayout>
-          {children}
-        </ClientLayout>
+        <FirebaseProvider>
+          <ProxyWebSocketInitializer />
+          <ClientLayout>
+            {children}
+          </ClientLayout>
+        </FirebaseProvider>
       </body>
     </html>
   );
